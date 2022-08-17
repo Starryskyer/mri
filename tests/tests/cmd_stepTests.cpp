@@ -1,4 +1,4 @@
-/* Copyright 2017 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2017 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -15,10 +15,11 @@
 
 extern "C"
 {
-#include <core/try_catch.h>
-#include <core/mri.h>
-#include <core/core.h>
-#include <core/platforms.h>
+#include <try_catch.h>
+#include <mri.h>
+#include <platforms.h>
+
+void __mriDebugException(void);
 }
 #include <platformMock.h>
 
@@ -28,13 +29,13 @@ extern "C"
 
 TEST_GROUP(cmdStep)
 {
-    int     m_expectedException;
-
+    int     m_expectedException;            
+    
     void setup()
     {
         m_expectedException = noException;
         platformMock_Init();
-        mriInit("MRI_UART_MBED_USB");
+        __mriInit("MRI_UART_MBED_USB");
     }
 
     void teardown()
@@ -43,7 +44,7 @@ TEST_GROUP(cmdStep)
         clearExceptionCode();
         platformMock_Uninit();
     }
-
+    
     void validateExceptionCode(int expectedExceptionCode)
     {
         m_expectedException = expectedExceptionCode;
@@ -55,9 +56,9 @@ TEST(cmdStep, BasicSingleStep)
 {
     CHECK_FALSE ( Platform_IsSingleStepping() );
     platformMock_CommInitReceiveChecksummedData("+$s#");
-        mriDebugException(platformMock_GetContext());
+        __mriDebugException();
     CHECK_TRUE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+"), platformMock_CommGetTransmittedData() );
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+") );
     CHECK_EQUAL( 0, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
     CHECK_EQUAL( INITIAL_PC, platformMock_GetProgramCounterValue() );
 }
@@ -66,10 +67,9 @@ TEST(cmdStep, SingleStepOverHardcodedBreakpoints_MustContinueAfterToExit)
 {
     platformMock_SetTypeOfCurrentInstruction(MRI_PLATFORM_INSTRUCTION_HARDCODED_BREAKPOINT);
     platformMock_CommInitReceiveChecksummedData("+$s#", "+$c#");
-        mriDebugException(platformMock_GetContext());
+        __mriDebugException();
     CHECK_FALSE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$T05responseT#+"),
-                   platformMock_CommGetTransmittedData() );
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$T05responseT#7c+") );
     CHECK_EQUAL( 2, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
     CHECK_EQUAL( INITIAL_PC + 8, platformMock_GetProgramCounterValue() );
 }
@@ -78,9 +78,9 @@ TEST(cmdStep, SetSignalOnly)
 {
     CHECK_FALSE ( Platform_IsSingleStepping() );
     platformMock_CommInitReceiveChecksummedData("+$S0b#");
-        mriDebugException(platformMock_GetContext());
+        __mriDebugException();
     CHECK_TRUE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+"), platformMock_CommGetTransmittedData() );
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+") );
     CHECK_EQUAL( 0, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
     CHECK_EQUAL( INITIAL_PC, platformMock_GetProgramCounterValue() );
 }
@@ -89,9 +89,9 @@ TEST(cmdStep, SetSignalWithAddress)
 {
     CHECK_FALSE ( Platform_IsSingleStepping() );
     platformMock_CommInitReceiveChecksummedData("+$S0b;f00d#");
-        mriDebugException(platformMock_GetContext());
+        __mriDebugException();
     CHECK_TRUE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+"), platformMock_CommGetTransmittedData() );
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+") );
     CHECK_EQUAL( 0, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
     CHECK_EQUAL( 0xF00D, platformMock_GetProgramCounterValue() );
 }
@@ -100,10 +100,9 @@ TEST(cmdStep, SetSignalSingleStepOverHardcodedBreakpoints_MustContinueAfterToExi
 {
     platformMock_SetTypeOfCurrentInstruction(MRI_PLATFORM_INSTRUCTION_HARDCODED_BREAKPOINT);
     platformMock_CommInitReceiveChecksummedData("+$S0b#", "+$c#");
-        mriDebugException(platformMock_GetContext());
+        __mriDebugException();
     CHECK_FALSE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$T05responseT#+"),
-                   platformMock_CommGetTransmittedData() );
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$T05responseT#7c+") );
     CHECK_EQUAL( 2, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
     CHECK_EQUAL( INITIAL_PC + 8, platformMock_GetProgramCounterValue() );
 }
@@ -112,10 +111,9 @@ TEST(cmdStep, SetSignalWithMissingSignalValue)
 {
     CHECK_FALSE ( Platform_IsSingleStepping() );
     platformMock_CommInitReceiveChecksummedData("+$S#", "+$c#");
-        mriDebugException(platformMock_GetContext());
+        __mriDebugException();
     CHECK_FALSE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_INVALID_ARGUMENT "#+"),
-                  platformMock_CommGetTransmittedData() );
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_INVALID_ARGUMENT "#a6+") );
     CHECK_EQUAL( 0, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
     CHECK_EQUAL( INITIAL_PC, platformMock_GetProgramCounterValue() );
 }
@@ -124,58 +122,9 @@ TEST(cmdStep, SetSignalCommandWithMissingAddressAfterSemicolon)
 {
     CHECK_FALSE ( Platform_IsSingleStepping() );
     platformMock_CommInitReceiveChecksummedData("+$S0b;#", "+$c#");
-        mriDebugException(platformMock_GetContext());
+        __mriDebugException();
     CHECK_FALSE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_INVALID_ARGUMENT "#+"),
-                   platformMock_CommGetTransmittedData() );
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_INVALID_ARGUMENT "#a6+") );
     CHECK_EQUAL( 0, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
     CHECK_EQUAL( INITIAL_PC, platformMock_GetProgramCounterValue() );
-}
-
-TEST(cmdStep, RtosSetThreadStateEnabled_BasicSingleStep_VerifyThreadStatesAreSet)
-{
-    PlatformMockThread threads[3];
-    threads[0].threadId = 0x5A5A5A5A;
-    threads[0].state = MRI_PLATFORM_THREAD_FROZEN;
-    threads[1].threadId = 0xBAADF00D;
-    threads[1].state = MRI_PLATFORM_THREAD_FROZEN;
-    threads[2].threadId = 0xBAADFEED;
-    threads[2].state = MRI_PLATFORM_THREAD_FROZEN;
-    platformMock_RtosSetThreadList(threads, sizeof(threads)/sizeof(threads[0]));
-    platformMock_RtosSetHaltedThreadId(0xBAADFEED);
-    platformMock_RtosSetIsSetThreadStateSupported(1);
-    CHECK_FALSE ( Platform_IsSingleStepping() );
-    platformMock_CommInitReceiveChecksummedData("+$s#");
-        mriDebugException(platformMock_GetContext());
-    CHECK_TRUE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05thread:baadfeed;responseT#+"), platformMock_CommGetTransmittedData() );
-    CHECK_EQUAL( 0, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
-    CHECK_EQUAL( INITIAL_PC, platformMock_GetProgramCounterValue() );
-    CHECK_EQUAL( MRI_PLATFORM_THREAD_THAWED, threads[0].state );
-    CHECK_EQUAL( MRI_PLATFORM_THREAD_THAWED, threads[1].state );
-    CHECK_EQUAL( MRI_PLATFORM_THREAD_SINGLE_STEPPING, threads[2].state );
-}
-
-TEST(cmdStep, RtosSetThreadStateEnabled_SetSignalOnly_VerifyThreadStatesAreSet)
-{
-    PlatformMockThread threads[3];
-    threads[0].threadId = 0x5A5A5A5A;
-    threads[0].state = MRI_PLATFORM_THREAD_FROZEN;
-    threads[1].threadId = 0xBAADF00D;
-    threads[1].state = MRI_PLATFORM_THREAD_FROZEN;
-    threads[2].threadId = 0xBAADFEED;
-    threads[2].state = MRI_PLATFORM_THREAD_FROZEN;
-    platformMock_RtosSetThreadList(threads, sizeof(threads)/sizeof(threads[0]));
-    platformMock_RtosSetHaltedThreadId(0xBAADFEED);
-    platformMock_RtosSetIsSetThreadStateSupported(1);
-    CHECK_FALSE ( Platform_IsSingleStepping() );
-    platformMock_CommInitReceiveChecksummedData("+$S0b#");
-        mriDebugException(platformMock_GetContext());
-    CHECK_TRUE ( Platform_IsSingleStepping() );
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05thread:baadfeed;responseT#+"), platformMock_CommGetTransmittedData() );
-    CHECK_EQUAL( 0, platformMock_AdvanceProgramCounterToNextInstructionCalls() );
-    CHECK_EQUAL( INITIAL_PC, platformMock_GetProgramCounterValue() );
-    CHECK_EQUAL( MRI_PLATFORM_THREAD_THAWED, threads[0].state );
-    CHECK_EQUAL( MRI_PLATFORM_THREAD_THAWED, threads[1].state );
-    CHECK_EQUAL( MRI_PLATFORM_THREAD_SINGLE_STEPPING, threads[2].state );
 }

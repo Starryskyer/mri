@@ -1,4 +1,4 @@
-# Copyright 2020 Adam Green (https://github.com/adamgreen)
+# Copyright 2015 Adam Green (https://github.com/adamgreen)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ all : arm host
 
 gcov : RUN_CPPUTEST_TESTS GCOV_CORE
 
-clean :
+clean : 
 	@echo Cleaning MRI
 	$Q $(REMOVE_DIR) $(OBJDIR) $(QUIET)
 	$Q $(REMOVE_DIR) $(LIBDIR) $(QUIET)
@@ -71,14 +71,13 @@ endif
 # Flags to use when cross-compiling ARMv7-M binaries.
 ARMV7M_GCCFLAGS := -Os -g3 -mcpu=cortex-m3 -mthumb -mthumb-interwork -Wall -Wextra -Werror -Wno-unused-parameter -MMD -MP
 ARMV7M_GCCFLAGS += -ffunction-sections -fdata-sections -fno-exceptions -fno-delete-null-pointer-checks -fomit-frame-pointer
-ARMV7M_GCCFLAGS += -DMRI_THREAD_MRI=0
 ARMV7M_GPPFLAGS := $(ARMV7M_GCCFLAGS) -fno-rtti
 ARMV7M_GCCFLAGS += -std=gnu90
 ARMV7M_ASFLAGS  := -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=softfp -mthumb -g3 -x assembler-with-cpp -MMD -MP
 
 # Flags to use when compiling binaries to run on this host system.
 HOST_GCCFLAGS := -O2 -g3 -Wall -Wextra -Werror -Wno-unused-parameter -MMD -MP
-HOST_GCCFLAGS += -ffunction-sections -fdata-sections -fno-common -DMRI_THREAD_MRI=0
+HOST_GCCFLAGS += -ffunction-sections -fdata-sections -fno-common
 HOST_GCCFLAGS += -include CppUTest/include/CppUTest/MemoryLeakDetectorMallocMacros.h
 HOST_GPPFLAGS := $(HOST_GCCFLAGS) -include CppUTest/include/CppUTest/MemoryLeakDetectorNewMacros.h
 HOST_GCCFLAGS += -std=gnu90
@@ -105,7 +104,7 @@ GCOV_HOST_GPPFLAGS      := $(HOST_GPPFLAGS) -fprofile-arcs -ftest-coverage
 GCOV_HOST_LDFLAGS       := $(HOST_LDFLAGS) -fprofile-arcs -ftest-coverage
 
 # Most of the needed headers are located here.
-INCLUDES := . cmsis
+INCLUDES := include cmsis
 
 # Start out with an empty header file dependency list.  Add module files as we go.
 DEPS :=
@@ -202,9 +201,8 @@ $(eval $(call make_tests,CPPUTEST,CppUTest/tests,,))
 
 # MRI Core sources to build and test.
 ARMV7M_CORE_OBJ    := $(call armv7m_objs,core)
-ARMV7M_CORE_OBJ    += $(call armv7m_objs,rtos)
-$(eval $(call make_library,CORE,core memory/native,libmricore.a,.))
-$(eval $(call make_tests,CORE,tests/tests tests/mocks,. tests/mocks,))
+$(eval $(call make_library,CORE,core memory/native,libmricore.a,include))
+$(eval $(call make_tests,CORE,tests/tests tests/mocks,include tests/mocks,))
 $(eval $(call run_gcov,CORE))
 
 # Sources for newlib and mbed's LocalFileSystem semihosting support.
@@ -238,17 +236,17 @@ $(eval $(call armv7m_module,LPC43XX,devices/lpc43xx))
 # mbed 1768 board
 $(eval $(call make_board_library,MBED1768,boards/mbed1768,libmri_mbed1768.a,\
                                  CORE SEMIHOST ARMV7M NATIVE_MEM LPC176X,\
-                                 cmsis/LPC17xx))
+                                 boards/mbed1768 devices/lpc176x architecture/armv7-m cmsis/LPC17xx))
 
 # Bambino 210 LPC4330 board
 $(eval $(call make_board_library,BAMBINO210,boards/bambino210,libmri_bambino210.a,\
                                  CORE SEMIHOST ARMV7M_FPU NATIVE_MEM LPC43XX,\
-                                 cmsis/LPC43xx))
+                                 boards/bambino210 devices/lpc43xx architecture/armv7-m cmsis/LPC43xx))
 
 # STM32F429i-Discovery STM32F429xx board
 $(eval $(call make_board_library,STM32F429_DISCO,boards/stm32f429-disco,libmri_stm32f429-disco.a,\
                                   CORE SEMIHOST ARMV7M_FPU NATIVE_MEM STM32F429XX,\
-                                  cmsis/STM32F429xx))
+                                  boards/stm32f429-disco devices/stm32f429xx architecture/armv7-m cmsis/STM32F429xx))
 
 # All boards to be built for ARM target.
 ARM_BOARDS : $(ARM_BOARD_LIBS)

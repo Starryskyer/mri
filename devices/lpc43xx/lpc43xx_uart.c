@@ -1,4 +1,4 @@
-/* Copyright 2020 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2016 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -15,10 +15,9 @@
 /* Routines used to provide LPC43xx UART functionality to the mri debugger. */
 #include <string.h>
 #include <stdlib.h>
-#include <core/platforms.h>
+#include "platforms.h"
+#include "../../architectures/armv7-m/debug_cm3.h"
 #include "lpc43xx_init.h"
-#include <architectures/armv7-m/armv7-m.h>
-#include <architectures/armv7-m/debug_cm3.h>
 
 
 static const UartConfiguration g_uartConfigurations[] =
@@ -70,6 +69,7 @@ static UartConfiguration g_customUart;
 typedef struct
 {
     const UartConfiguration* pUart;
+    int                      share;
     uint32_t                 baudRate;
 } UartParameters;
 
@@ -94,6 +94,7 @@ typedef struct
 
 static void     parseUartParameters(Token* pParameterTokens, UartConfiguration* pUart, UartParameters* pParameters);
 static void     saveUartToBeUsedByDebugger(const UartConfiguration* pUart);
+static void     setUartSharedFlag(void);
 static uint32_t uint32FromString(const char* pString);
 static uint32_t getDecimalDigit(char currChar);
 static void     configureUartForExclusiveUseOfDebugger(UartParameters* pParameters);
@@ -107,6 +108,7 @@ static void     setUartBaudRate(UartParameters* pParameters);
 static void     setDivisors(BaudRateDivisors* pDivisors);
 static void     setDivisorLatchBit(void);
 static void     clearDivisorLatchBit(void);
+static void     setManualBaudFlag(void);
 static BaudRateDivisors calculateBaudRateDivisors(uint32_t baudRate, uint32_t peripheralRate);
 static void     initCalculateDivisorsStruct(CalculateDivisors* pThis, uint32_t baudRate, uint32_t peripheralRate);
 static uint32_t fixupPeripheralRateFor16XOversampling(uint32_t actualPeripheralRate);
@@ -117,14 +119,16 @@ static void     checkTheseFractionalDivisors(CalculateDivisors* pThis);
 static void     selectUartPins(void);
 static void     enableUartToInterruptOnReceivedChar(void);
 static void     configureNVICForUartInterrupt(void);
-static int      commUartIndex(void);
-void mriLpc43xxUart_Init(Token* pParameterTokens)
+void __mriLpc43xxUart_Init(Token* pParameterTokens)
 {
-    UartParameters    parameters = {NULL, 0};
+    UartParameters    parameters = {NULL, 0, 0};
 
     parseUartParameters(pParameterTokens, &g_customUart, &parameters);
     saveUartToBeUsedByDebugger(parameters.pUart);
-    configureUartForExclusiveUseOfDebugger(&parameters);
+    if (parameters.share)
+        setUartSharedFlag();
+    else
+        configureUartForExclusiveUseOfDebugger(&parameters);
 }
 
 static void parseUartParameters(Token* pParameterTokens, UartConfiguration* pUart, UartParameters* pParameters)
@@ -398,13 +402,19 @@ static void parseUartParameters(Token* pParameterTokens, UartConfiguration* pUar
 
     if ((pMatchingPrefix = Token_MatchingStringPrefix(pParameterTokens, baudRatePrefix)) != NULL)
         pParameters->baudRate = uint32FromString(pMatchingPrefix + sizeof(baudRatePrefix)-1);
-    else
-        pParameters->baudRate = 230400;
+
+    if (Token_MatchingString(pParameterTokens, "MRI_UART_SHARE"))
+        pParameters->share = 1;
 }
 
 static void saveUartToBeUsedByDebugger(const UartConfiguration* pUart)
 {
-    mriLpc43xxState.pCurrentUart = pUart;
+    __mriLpc43xxState.pCurrentUart = pUart;
+}
+
+static void setUartSharedFlag(void)
+{
+    __mriLpc43xxState.flags |= LPC43XX_UART_FLAGS_SHARE;
 }
 
 static uint32_t uint32FromString(const char* pString)
@@ -449,6 +459,7 @@ static void configureUartForExclusiveUseOfDebugger(UartParameters* pParameters)
     setUartBaudRate(pParameters);
     selectUartPins();
     enableUartToInterruptOnReceivedChar();
+    Platform_CommPrepareToWaitForGdbConnection();
     configureNVICForUartInterrupt();
 }
 
@@ -457,13 +468,13 @@ static void setUartPeripheralClockToPLL1(void)
     static const uint32_t autoBlockBit = 1 << 11;
     static const uint32_t pll1Bit = 0x09 << 24;
 
-    LPC_CGU->BASE_CLK[mriLpc43xxState.pCurrentUart->baseClock] = autoBlockBit | pll1Bit;
+    LPC_CGU->BASE_CLK[__mriLpc43xxState.pCurrentUart->baseClock] = autoBlockBit | pll1Bit;
 }
 
 static void enableUartClocks(void)
 {
-    enableCCUClock(mriLpc43xxState.pCurrentUart->registerClock);
-    enableCCUClock(mriLpc43xxState.pCurrentUart->peripheralClock);
+    enableCCUClock(__mriLpc43xxState.pCurrentUart->registerClock);
+    enableCCUClock(__mriLpc43xxState.pCurrentUart->peripheralClock);
 }
 
 static void enableCCUClock(CCU_CLK_T clockToEnable)
@@ -478,14 +489,14 @@ static void enableCCUClock(CCU_CLK_T clockToEnable)
 
 static void clearUartFractionalBaudDivisor(void)
 {
-    mriLpc43xxState.pCurrentUart->pUartRegisters->FDR = 0x10;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->FDR = 0x10;
 }
 
 static void enableUartFifoAndDisableDma(void)
 {
     static const uint32_t enableFifoDisableDmaSetReceiveInterruptThresholdTo0 = 0x01;
 
-    mriLpc43xxState.pCurrentUart->pUartRegisters->FCR = enableFifoDisableDmaSetReceiveInterruptThresholdTo0;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->FCR = enableFifoDisableDmaSetReceiveInterruptThresholdTo0;
 }
 
 static void setUartTo8N1(void)
@@ -495,15 +506,19 @@ static void setUartTo8N1(void)
     static const uint8_t disableParity = 0 << 3;
     static const uint8_t lineControlValueFor8N1 = wordLength8Bit | disableParity | stopBit1;
 
-    mriLpc43xxState.pCurrentUart->pUartRegisters->LCR = lineControlValueFor8N1;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->LCR = lineControlValueFor8N1;
 }
 
 static void setUartBaudRate(UartParameters* pParameters)
 {
     BaudRateDivisors  divisors;
 
+    if (pParameters->baudRate == 0)
+        return;
+
     divisors = calculateBaudRateDivisors(pParameters->baudRate, SystemCoreClock);
     setDivisors(&divisors);
+    setManualBaudFlag();
 }
 
 static BaudRateDivisors calculateBaudRateDivisors(uint32_t baudRate, uint32_t peripheralRate)
@@ -573,7 +588,7 @@ static void checkTheseFractionalDivisors(CalculateDivisors* pThis)
     fixedScale = fixedOne + ((pThis->divAdd << 15) / pThis->mul);
     testDivisor = pThis->desiredRatio / fixedScale;
     fixedRatio = testDivisor * fixedScale;
-    fixedDelta = abs((int32_t)fixedRatio - (int32_t)pThis->desiredRatio);
+    fixedDelta = abs(fixedRatio - pThis->desiredRatio);
 
     if (fixedDelta < pThis->closestDelta)
     {
@@ -586,7 +601,7 @@ static void checkTheseFractionalDivisors(CalculateDivisors* pThis)
 
 static void setDivisors(BaudRateDivisors* pDivisors)
 {
-    LPC_USART_T* pUartRegisters = mriLpc43xxState.pCurrentUart->pUartRegisters;
+    LPC_USART_T* pUartRegisters = __mriLpc43xxState.pCurrentUart->pUartRegisters;
 
     setDivisorLatchBit();
 
@@ -601,17 +616,23 @@ static void setDivisors(BaudRateDivisors* pDivisors)
 
 static void setDivisorLatchBit(void)
 {
-    mriLpc43xxState.pCurrentUart->pUartRegisters->LCR |= LPC176x_UART_LCR_DLAB;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->LCR |= LPC176x_UART_LCR_DLAB;
 }
 
 static void clearDivisorLatchBit(void)
 {
-    mriLpc43xxState.pCurrentUart->pUartRegisters->LCR &= ~LPC176x_UART_LCR_DLAB;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->LCR &= ~LPC176x_UART_LCR_DLAB;
+}
+
+static void setManualBaudFlag(void)
+{
+    __mriLpc43xxState.flags |= LPC43XX_UART_FLAGS_MANUAL_BAUD;
+
 }
 
 static void selectUartPins(void)
 {
-    const UartConfiguration*  pUart = mriLpc43xxState.pCurrentUart;
+    const UartConfiguration*  pUart = __mriLpc43xxState.pCurrentUart;
     uint32_t                  txPin = pUart->txPin;
     uint32_t                  rxPin = pUart->rxPin;
 
@@ -625,10 +646,10 @@ static void enableUartToInterruptOnReceivedChar(void)
     static const uint32_t enableReceiveDataInterrupt = (1 << 0);
     uint32_t              originalLCR;
 
-    originalLCR = mriLpc43xxState.pCurrentUart->pUartRegisters->LCR;
-    mriLpc43xxState.pCurrentUart->pUartRegisters->LCR &= ~baudDivisorLatchBit;
-    mriLpc43xxState.pCurrentUart->pUartRegisters->IER = enableReceiveDataInterrupt;
-    mriLpc43xxState.pCurrentUart->pUartRegisters->LCR = originalLCR;
+    originalLCR = __mriLpc43xxState.pCurrentUart->pUartRegisters->LCR;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->LCR &= ~baudDivisorLatchBit;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->IER = enableReceiveDataInterrupt;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->LCR = originalLCR;
 }
 
 static void configureNVICForUartInterrupt(void)
@@ -636,21 +657,21 @@ static void configureNVICForUartInterrupt(void)
     IRQn_Type uart0BaseIRQ = USART0_IRQn;
     IRQn_Type currentUartIRQ;
 
-    currentUartIRQ = (IRQn_Type)((int)uart0BaseIRQ + commUartIndex());
-    mriCortexMSetPriority(currentUartIRQ, 0, 0);
+    currentUartIRQ = (IRQn_Type)((int)uart0BaseIRQ + Platform_CommUartIndex());
+    NVIC_SetPriority(currentUartIRQ, 0);
     NVIC_EnableIRQ(currentUartIRQ);
 }
 
 
-static int commUartIndex(void)
+int Platform_CommUartIndex(void)
 {
-    if (mriLpc43xxState.pCurrentUart->pUartRegisters == LPC_USART0)
+    if (__mriLpc43xxState.pCurrentUart->pUartRegisters == LPC_USART0)
         return 0;
-    else if (mriLpc43xxState.pCurrentUart->pUartRegisters == LPC_UART1)
+    else if (__mriLpc43xxState.pCurrentUart->pUartRegisters == LPC_UART1)
         return 1;
-    else if (mriLpc43xxState.pCurrentUart->pUartRegisters == LPC_USART2)
+    else if (__mriLpc43xxState.pCurrentUart->pUartRegisters == LPC_USART2)
         return 2;
-    else if (mriLpc43xxState.pCurrentUart->pUartRegisters == LPC_USART3)
+    else if (__mriLpc43xxState.pCurrentUart->pUartRegisters == LPC_USART3)
         return 3;
     else
         return -1;
@@ -661,15 +682,7 @@ uint32_t Platform_CommHasReceiveData(void)
 {
     static const uint8_t receiverDataReadyBit = 1 << 0;
 
-    return mriLpc43xxState.pCurrentUart->pUartRegisters->LSR & receiverDataReadyBit;
-}
-
-
-uint32_t  mriPlatform_CommHasTransmitCompleted(void)
-{
-    static const uint8_t transmitterEmpty = 1 << 6;
-
-    return mriLpc43xxState.pCurrentUart->pUartRegisters->LSR & transmitterEmpty;
+    return __mriLpc43xxState.pCurrentUart->pUartRegisters->LSR & receiverDataReadyBit;
 }
 
 
@@ -678,7 +691,7 @@ int Platform_CommReceiveChar(void)
 {
     waitForUartToReceiveData();
 
-    return (int)mriLpc43xxState.pCurrentUart->pUartRegisters->RBR;
+    return (int)__mriLpc43xxState.pCurrentUart->pUartRegisters->RBR;
 }
 
 static void waitForUartToReceiveData(void)
@@ -694,7 +707,7 @@ void Platform_CommSendChar(int Character)
 {
     waitForUartToAllowTransmit();
 
-    mriLpc43xxState.pCurrentUart->pUartRegisters->THR = (uint8_t)Character;
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->THR = (uint8_t)Character;
 }
 
 static void waitForUartToAllowTransmit(void)
@@ -708,5 +721,99 @@ static uint32_t targetUartCanTransmit(void)
 {
     static const uint8_t transmitterHoldRegisterEmptyBit = 1 << 5;
 
-    return mriLpc43xxState.pCurrentUart->pUartRegisters->LSR & transmitterHoldRegisterEmptyBit;
+    return __mriLpc43xxState.pCurrentUart->pUartRegisters->LSR & transmitterHoldRegisterEmptyBit;
+}
+
+
+int Platform_CommCausedInterrupt(void)
+{
+    const uint32_t uart0BaseExceptionId = USART0_IRQn + 16;
+    uint32_t       interruptSource = getCurrentlyExecutingExceptionNumber();
+    uint32_t       currentUartExceptionId;
+
+    currentUartExceptionId = uart0BaseExceptionId + Platform_CommUartIndex();
+    return interruptSource == currentUartExceptionId;
+}
+
+
+void Platform_CommClearInterrupt(void)
+{
+    uint32_t interruptId;
+
+    interruptId = __mriLpc43xxState.pCurrentUart->pUartRegisters->IIR;
+    (void)interruptId;
+}
+
+
+int Platform_CommSharingWithApplication(void)
+{
+    return __mriLpc43xxState.flags & LPC43XX_UART_FLAGS_SHARE;
+}
+
+static int isManualBaudRate(void);
+int Platform_CommShouldWaitForGdbConnect(void)
+{
+    return !isManualBaudRate() && !Platform_CommSharingWithApplication();
+}
+
+static int isManualBaudRate(void)
+{
+    return (int)(__mriLpc43xxState.flags & LPC43XX_UART_FLAGS_MANUAL_BAUD);
+}
+
+
+int Platform_CommIsWaitingForGdbToConnect(void)
+{
+    static const uint32_t autoBaudStarting = 1;
+
+    if (!Platform_CommShouldWaitForGdbConnect())
+        return 0;
+
+    return (int)(__mriLpc43xxState.pCurrentUart->pUartRegisters->ACR & autoBaudStarting);
+}
+
+
+void Platform_CommPrepareToWaitForGdbConnection(void)
+{
+    static const uint32_t   autoBaudStart = 1;
+    static const uint32_t   autoBaudModeForStartBitOnly = 1 << 1;
+    static const uint32_t   autoBaudAutoRestart = 1 << 2;
+    static const uint32_t   autoBaudValue = autoBaudStart | autoBaudModeForStartBitOnly | autoBaudAutoRestart;
+
+    if (!Platform_CommShouldWaitForGdbConnect())
+        return;
+
+    __mriLpc43xxState.pCurrentUart->pUartRegisters->ACR = autoBaudValue;
+}
+
+
+static int hasHostSentDataInLessThan10Milliseconds(void);
+static int isNoReceivedCharAndNoTimeout(void);
+void Platform_CommWaitForReceiveDataToStop(void)
+{
+    while (hasHostSentDataInLessThan10Milliseconds())
+    {
+        Platform_CommReceiveChar();
+    }
+}
+
+static int hasHostSentDataInLessThan10Milliseconds(void)
+{
+    uint32_t originalSysTickControlValue = getCurrentSysTickControlValue();
+    uint32_t originalSysTickReloadValue = getCurrentSysTickReloadValue();
+    start10MillisecondSysTick();
+
+    while (isNoReceivedCharAndNoTimeout())
+    {
+    }
+
+    setSysTickReloadValue(originalSysTickReloadValue);
+    setSysTickControlValue(originalSysTickControlValue);
+
+    return Platform_CommHasReceiveData();
+}
+
+static int isNoReceivedCharAndNoTimeout(void)
+{
+    return !Platform_CommHasReceiveData() && !has10MillisecondSysTickExpired();
 }

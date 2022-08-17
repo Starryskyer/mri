@@ -3,6 +3,8 @@ MRI already contains most of the code it requires to run on any ARMv7-M based Co
 support for a new device, you need to provide code which provides the following device specific functionality for MRI:
 * code which allows MRI to communicate to GDB via the device's specific UART hardware.
 * code which provides the XML that describes the memory layout for this particular device.
+* code which can default all device specific interrupt priorities to the second highest level, reserving the highest
+  priority for MRI itself.
 
 This page gives an overview of what is required if a developer wants to add support for another device/board to the MRI
 debug monitor.
@@ -45,7 +47,7 @@ handler runs at a priority equal or higher than the UART, then it can't be broke
 amiss.
 
 This assembly language file provides a default handler for each UART interrupt supported by the device.  These default
-handlers will just branch immediately to the {{{mriExceptionHandler}}} routine.  This routine is implemented by the
+handlers will just branch immediately to the {{{__mriExceptionHandler}}} routine.  This routine is implemented by the
 existing ARMv7-M architecture level code.  The UART handlers are weak implementations so that the developer can provide
 their own strong implementation for the UARTs they plan to use for their own firmware, leaving the unused ones ready to
 be used by MRI for debugging.  This is an example implementation from
@@ -56,10 +58,10 @@ be used by MRI for debugging.  This is an example implementation from
     .type UART0_IRQHandler, function
     .thumb_func
     /* extern "C" void UART0_IRQHandler(void);
-       Override UART0 exceptions and send to mriExceptionHandler.
+       Override UART0 exceptions and send to __mriExceptionHandler.
     */
 UART0_IRQHandler:
-    b       mriExceptionHandler
+    b       __mriExceptionHandler
 }}}
 
 How many of these UART handlers should be provided and what should they be named?  The number depends on the amount of
@@ -83,7 +85,7 @@ __isr_vector:
 }}}
 
 This shows us that the handlers should be named **UART0_IRQHandler**, **UART1_IRQHandler**, **UART2_IRQHandler**,
-and **UART3_IRQHandler** for the LPC176x.
+and **UART3_IRQHandler**.
 
 ===device_init.h
 This header file exposes 3 important pieces of information about this device implementation:
@@ -97,12 +99,12 @@ An example can be found in
 [[https://github.com/adamgreen/mri/blob/master/devices/lpc176x/lpc176x_init.h | devices/lpc176x/lpc176x_init.h]].  In
 this example we see:
 * The **MRI_DEVICE_HAS_FPU** macro has been defined to have a value of 0 since the LPC1768 doesn't have a FPU.
-* {{{mriLpc176x_Init()}}} is the name of the routine to be called from the {{{Platform_Init()}}} to initialize this
+* {{{__mriLpc176x_Init()}}} is the name of the routine to be called from the {{{Platform_Init()}}} to initialize this
   device.
-* {{{mriLpc176xState}}} is the name of the global state maintained for the LPC176X device code.
+* {{{__mriLpc176xState}}} is the name of the global state maintained for the LPC176X device code.
 
-**Note:** The externally visible globals have been given names which begin with {{{mri}}}.  All externally visible
-symbols in the MRI lib should start with this {{{mri}}} prefix to reduce the chance that they will conflict with the
+**Note:** The externally visible globals have been given names which begin with {{{__mri}}}.  All externally visible
+symbols in the MRI lib should start with this {{{__mri}}} prefix to reduce the chance that they will conflict with the
 firmware into which it is being linked.  The
 [[https://github.com/adamgreen/mri/blob/master/tests/globalchk | globalchk]] bash script is used to check that this rule
 has been honoured.
@@ -122,41 +124,47 @@ void UART0_IRQHandler(void);
 
 
 static void defaultExternalInterruptsToPriority1(void);
-void mriLpc176x_Init(Token* pParameterTokens)
+void __mriLpc176x_Init(Token* pParameterTokens)
 {
     /* Reference handler in ASM module to make sure that is gets linked in. */
     void (* volatile dummyReference)(void) = UART0_IRQHandler;
     (void)dummyReference;
 
     __try
-        mriCortexMInit(pParameterTokens, CANActivity_IRQn);
+        __mriCortexMInit(pParameterTokens);
     __catch
         __rethrow;
-
-    /* mriCortexInit() sets all interrupts to lower priority than debug monitor. Interrupt for UART used by GDB must be
-       elevated to the same level as DebugMon_Handler, so initialize it after calling mriCortexInit().
-    */
-    mriLpc176xUart_Init(pParameterTokens);
+        
+    defaultExternalInterruptsToPriority1();    
+    __mriLpc176xUart_Init(pParameterTokens);
 }
 }}}
 
 Notes about this example:
-* The initial dummy reference in {{{mriLpc176x_Init()}}} to UART0_IRQHandler is performed so that code which gets
-  calls from {{{mriInit()}}} will have a reference to something in device_asm.S.  Without this reference the GNU
+* The initial dummy reference in {{{__mriLpc176x_Init()}}} to UART0_IRQHandler is performed so that code which gets
+  calls from {{{__mriInit()}}} will have a reference to something in device_asm.S.  Without this reference the GNU
   linker would most likely not bother to link in the UART handlers from this assembly language module and instead use
   the weak implementations found in the CMSIS startup code.
-* Calls {{{mriCortexMInit()}}} to initialize the ARMv7-M architecture level portion of MRI.  If this should fail then
-  it will return immediately rather than attempting to initialize device specific features. The second parameter of
-  CANActivity_IRQn is the highest external device IRQn on the LPC176x. It is used to initialize all of the LPC176x
-  external interrupts to priority 1, reserving priority 0 for debugger related interrupts/exceptions.
-* Finally it calls {{{mriLpc176xUart_Init()}}} to initialize the UART to be used for communicating to GDB.
+* Calls {{{__mriCortexMInit()}}} to initialize the ARMv7-M architecture level portion of MRI.  If this should fail then
+  it will return immediately rather than attempting to initialize device specific features.
+* Then calls {{{defaultExternalInterruptsToPriority1()}}}, a static routine defined in the same module, to initialize
+  all of the LPC176x external interrupts to priority 1, reserving priority 0 for debugger related interrupts/exceptions.
+* Finally it calls {{{__mriLpc176xUart_Init()}}} to initialize the UART to be used for communicating to GDB.
 
 ===device_uart.h / device_uart.c
 These files provide device specific code to be used by MRI to communicate with GDB via the UART.  MRI requires that the
 following communication routines be implemented:
+| Platform_CommUartIndex() | Returns 0 if user selected UART is MRI_UART_0, 1 for MRI_UART_1, etc. |
 | Platform_CommHasReceiveData() | Returns 0 if no data from GDB has already been received and non-zero otherwise. |
 | Platform_CommReceiveChar() | Returns next received character from GDB. This call should block. |
 | Platform_CommSendChar() | Sends a character to GDB. |
+| Platform_CommCausedInterrupt() | Was a character received from GDB the reason for the halt. |
+| Platform_CommClearInterrupt() | Clear any active UART interrupts. |
+| Platform_CommSharingWithApplication() | Returns non-zero if application typically uses UART and MRI only uses it after a crash. |
+| Platform_CommShouldWaitForGdbConnect() | Does MRI need to wait for GDB to connect before progressing?  For example if it needs to wait for first '+' character from GDB to auto detect baud rate. |
+| Platform_CommIsWaitingForGdbToConnect() | Is MRI currently waiting for GDB to connect? |
+| Platform_CommPrepareToWaitForGdbConnection() | Typically used to start auto-baud detection. |
+| Platform_CommWaitForReceiveDataToStop() | Used to throw away received data if MRI has determined that first connection didn't originate from GDB. |
 
 The existing
 [[https://github.com/adamgreen/mri/blob/master/devices/lpc176x/lpc176x_uart.h | devices/lpc176x/lpc176x_uart.h]] and
@@ -178,30 +186,26 @@ a pretty good example:
 {{{
 void Platform_Init(Token* pParameterTokens)
 {
-    mriLpc43xx_Init(pParameterTokens);
+    __mriLpc43xx_Init(pParameterTokens);
 }
 
 
-const uint8_t* mriPlatform_GetUid(void)
+const uint8_t* __mriPlatform_GetUid(void)
 {
     return NULL;
 }
 
 
-uint32_t mriPlatform_GetUidSize(void)
+uint32_t __mriPlatform_GetUidSize(void)
 {
     return 0;
 }
 }}}
 
 The main thing it does is implement {{{Platform_Init()}}} which just calls the device specific initialization routine,
-{{{mriLpc43xx_Init()}}}.  The mbed interface chip on the LPC1768 board actually contains a UID which is used by the
+{{{__mriLpc43xx_Init()}}}.  The mbed interface chip on the LPC1768 board actually contains a UID which is used by the
 ethernet drivers to obtain the MAC address.  The Bambino doesn't have this so it just returns an empty UID in the above
 example.
-
-
-==Debugger Stack
-The {{{mriCortexMDebuggerStack}}} is the stack used while the program is halted in MRI. Its size is set by the **CORTEXM_DEBUGGER_STACK_SIZE** global in [[https://github.com/adamgreen/mri/blob/master/architectures/armv7-m/armv7-m.h | armv7-m.h]] and might need to be increased if some of your **Platform_* ** implementations use more stack than the current device implementations. The {{{mriCortexMState.maxStackUsed}}} global is updated each time execution is resumed in the debuggee. It indicates the maximum amount of debugger stack used so far in bytes.
 
 
 ==Makefile Updates

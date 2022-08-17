@@ -1,4 +1,4 @@
-/* Copyright 2020 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2014 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -12,31 +12,27 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 */
-#ifndef PLATFORM_MOCK_H_
-#define PLATFORM_MOCK_H_
+#ifndef _PLATFORM_MOCK_H_
+#define _PLATFORM_MOCK_H_
 
-extern "C"
-{
-    #include <core/context.h>
-    #include <core/token.h>
-    #include <core/platforms.h>
-}
+#include <token.h>
+#include <platforms.h>
 
 #define INITIAL_PC 0x10000000
 
 void        platformMock_Init(void);
 void        platformMock_Uninit(void);
 
-void        platformMock_CommInitReceiveData(const char* pDataToReceive1,
-                                             const char* pDataToReceive2 = NULL,
-                                             const char* pDataToReceive3 = NULL);
-void        platformMock_CommInitReceiveChecksummedData(const char* pDataToReceive1,
-                                                        const char* pDataToReceive2 = NULL,
-                                                        const char* pDataToReceive3 = NULL);
+void        platformMock_CommInitReceiveData(const char* pDataToReceive1, const char* pDataToReceive2 = NULL);
+void        platformMock_CommInitReceiveChecksummedData(const char* pDataToReceive1, const char* pDataToReceive2 = NULL);
 void        platformMock_CommInitTransmitDataBuffer(size_t Size);
-const char* platformMock_CommChecksumData(const char* pData);
-const char* platformMock_CommGetTransmittedData(void);
-int         platformMock_CommGetHasTransmitCompletedCallCount(void);
+int         platformMock_CommDoesTransmittedDataEqual(const char* thisString);
+void        platformMock_CommSetInterruptBit(int setValue);
+void        platformMock_CommSetShouldWaitForGdbConnect(int setValue);
+void        platformMock_CommSetIsWaitingForGdbToConnectIterations(int iterations);
+int         platformMock_GetCommWaitForReceiveDataToStopCalls(void);
+int         platformMock_GetCommPrepareToWaitForGdbConnectionCalls(void);
+void        platformMock_SetCommSharingWithApplication(int setValue);
 
 void        platformMock_SetInitException(int exceptionToThrow);
 int         platformMock_GetInitCount(void);
@@ -48,8 +44,6 @@ int         platformMock_GetLeavingDebuggerCalls(void);
 void        platformMock_SetIsDebuggeeMakingSemihostCall(int setValue);
 int         platformMock_GetHandleSemihostRequestCalls(void);
 
-void        platformMock_SetCauseOfException(uint8_t signal);
-void        platformMock_SetTrapReason(const PlatformTrapReason* reason);
 int         platformMock_DisplayFaultCauseToGdbConsoleCalls(void);
 
 void        platformMock_SetPacketBufferSize(uint32_t setValue);
@@ -61,8 +55,7 @@ uint32_t    platformMock_GetProgramCounterValue(void);
 
 void        platformMock_FaultOnSpecificMemoryCall(int callToFail);
 
-uint32_t*   platformMock_GetContextEntries(void);
-MriContext* platformMock_GetContext(void);
+uint32_t*   platformMock_GetContext(void);
 
 int         platformMock_SetHardwareBreakpointCalls(void);
 uint32_t    platformMock_SetHardwareBreakpointAddressArg(void);
@@ -89,22 +82,4 @@ void                   platformMock_ClearHardwareWatchpointException(uint32_t ex
 int platformMock_GetSemihostCallReturnValue(void);
 int platformMock_GetSemihostCallErrno(void);
 
-int platformMock_GetResetDeviceCalls(void);
-
-struct PlatformMockThread
-{
-    uint32_t            threadId;
-    PlatformThreadState state;
-};
-
-void platformMock_RtosSetHaltedThreadId(uint32_t threadId);
-void platformMock_RtosSetThreads(const uint32_t* pThreadArray, uint32_t threadCount);
-void platformMock_RtosSetExtraThreadInfo(uint32_t threadId, const char* pExtraThreadInfo);
-void platformMock_RtosSetThreadContext(uint32_t threadId, MriContext* pContext);
-void platformMock_RtosSetActiveThread(uint32_t threadId);
-void platformMock_RtosSetIsSetThreadStateSupported(int isSupported);
-void     platformMock_RtosSetThreadList(PlatformMockThread* pThreads, size_t threadCount);
-uint32_t platformMock_RtosGetThreadStateInvalidAttempts(void);
-uint32_t platformMock_RtosGetRestorePrevThreadStateCallCount(void);
-
-#endif /* PLATFORM_MOCK_H_ */
+#endif /* _PLATFORM_MOCK_H_ */

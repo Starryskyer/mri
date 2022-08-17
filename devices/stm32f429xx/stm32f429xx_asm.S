@@ -1,4 +1,4 @@
-/* Copyright 2015 Adam Green     (https://github.com/adamgreen/)
+/* Copyright 2015 Adam Green     (http://mbed.org/users/AdamGreen/)
    Copyright 2015 Chang,Jia-Rung (https://github.com/JaredCJR)
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -24,10 +24,10 @@
     .type USART1_IRQHandler, function
     .thumb_func
     /* extern "C" void USART1_IRQHandler(void);
-       Override USART1 exceptions and send to mriExceptionHandler.
+       Override USART1 exceptions and send to __mriExceptionHandler.
     */
 USART1_IRQHandler:
-    b       mriExceptionHandler
+    b       __mriExceptionHandler
 
 
     .global USART2_IRQHandler
@@ -35,10 +35,10 @@ USART1_IRQHandler:
     .type USART2_IRQHandler, function
     .thumb_func
     /* extern "C" void USART2_IRQHandler(void);
-       Override USART2 exceptions and send to mriExceptionHandler.
+       Override USART2 exceptions and send to __mriExceptionHandler.
     */
 USART2_IRQHandler:
-    b       mriExceptionHandler
+    b       __mriExceptionHandler
 
 
     .global USART3_IRQHandler
@@ -46,8 +46,8 @@ USART2_IRQHandler:
     .type USART3_IRQHandler, function
     .thumb_func
     /* extern "C" void USART3_IRQHandler(void);
-       Override USART3 exceptions and send to mriExceptionHandler.
+       Override USART3 exceptions and send to __mriExceptionHandler.
     */
 USART3_IRQHandler:
-    b       mriExceptionHandler
+    b       __mriExceptionHandler
 

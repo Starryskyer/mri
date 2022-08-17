@@ -1,4 +1,4 @@
-/* Copyright 2012 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2012 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -13,10 +13,10 @@
    limitations under the License.
 */
 /* Assembly Language routines which expose mbed1768 board specifc functionality to the mri debugger. */
-#ifndef MBED1768_ASM_H_
-#define MBED1768_ASM_H_
+#ifndef _MBED1768_ASM_H_
+#define _MBED1768_ASM_H_
 
-int      mriDisableMbed(void);
-int      mriGetMbedUid(uint8_t* pOutputBuffer);
+int      __mriDisableMbed(void);
+int      __mriGetMbedUid(uint8_t* pOutputBuffer);
 
-#endif /* MBED1768_ASM_H_ */
+#endif /* _MBED1768_ASM_H_ */

@@ -1,4 +1,4 @@
-/* Copyright 2012 Adam Green     (https://github.com/adamgreen/)
+/* Copyright 2012 Adam Green     (http://mbed.org/users/AdamGreen/)
    Copyright 2015 Chang,Jia-Rung (https://github.com/JaredCJR)
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,11 +14,11 @@
    limitations under the License.
 */
 /* Routines used by mri that are specific to the STM32F429xx device. */
-#ifndef STM32F429XX_H_
-#define STM32F429XX_H_
+#ifndef _STM32F429XX_H_
+#define _STM32F429XX_H_
 
 #include <stdint.h>
-#include <core/token.h>
+#include <token.h>
 #include "stm32f429xx_usart.h"
 
 /* Flags that can be set in Stm32f429xxState::flags */
@@ -34,8 +34,8 @@ typedef struct
     uint32_t                  flags;
 } Stm32f429xxState;
 
-extern Stm32f429xxState mriStm32f429xxState;
+extern Stm32f429xxState __mriStm32f429xxState;
 
-void mriStm32f429xx_Init(Token* pParameterTokens);
+void __mriStm32f429xx_Init(Token* pParameterTokens);
 
-#endif /* STM32F429XX_H_ */
+#endif /* _STM32F429XX_H_ */

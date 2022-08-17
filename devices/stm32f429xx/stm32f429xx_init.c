@@ -1,4 +1,4 @@
-/* Copyright 2020 Adam Green     (https://github.com/adamgreen/)
+/* Copyright 2015 Adam Green     (http://mbed.org/users/AdamGreen/)
    Copyright 2015 Chang,Jia-Rung (https://github.com/JaredCJR)
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,11 +14,11 @@
    limitations under the License.
 */
 /* Routines used by mri that are specific to the STM32F429xx device. */
-#include <core/try_catch.h>
-#include <core/platforms.h>
+#include <try_catch.h>
+#include <platforms.h>
 #include "stm32f429xx_init.h"
-#include <architectures/armv7-m/armv7-m.h>
-#include <architectures/armv7-m/debug_cm3.h>
+#include "../../architectures/armv7-m/armv7-m.h"
+#include "../../architectures/armv7-m/debug_cm3.h"
 
 
 static const char g_memoryMapXml[] = "<?xml version=\"1.0\"?>"
@@ -34,30 +34,38 @@ static const char g_memoryMapXml[] = "<?xml version=\"1.0\"?>"
                                      "<memory type=\"ram\" start=\"0x2001C000\" length=\"0x4000\"> </memory>"
                                      "<memory type=\"ram\" start=\"0x20020000\" length=\"0x10000\"> </memory>"
                                      "</memory-map>";
-Stm32f429xxState mriStm32f429xxState;
+Stm32f429xxState __mriStm32f429xxState;
 
 
 /* Reference this handler in the ASM module to make sure that it gets linked in. */
 void USART1_IRQHandler(void);
 
 
-void mriStm32f429xx_Init(Token* pParameterTokens)
+static void defaultExternalInterruptsToPriority1(void);
+void __mriStm32f429xx_Init(Token* pParameterTokens)
 {
     /* Reference handler in ASM module to make sure that is gets linked in. */
     void (* volatile dummyReference)(void) = USART1_IRQHandler;
     (void)dummyReference;
 
     __try
-        mriCortexMInit(pParameterTokens, 0, DMA2D_IRQn);
+        __mriCortexMInit(pParameterTokens);
     __catch
         __rethrow;
 
-    /* mriCortexInit() sets all interrupts to lower priority than debug monitor. Interrupt for UART used by GDB must be
-       elevated to the same level as DebugMon_Handler, so initialize it after calling mriCortexInit().
-    */
-    mriStm32f429xxUart_Init(pParameterTokens);
+    defaultExternalInterruptsToPriority1();
+    __mriStm32f429xxUart_Init(pParameterTokens);
 }
 
+static void defaultExternalInterruptsToPriority1(void)
+{
+    int irq;
+    /* Set all priority to a lower non-zero priority. */
+    for (irq = WWDG_IRQn ; irq <= DMA2D_IRQn ; irq++)
+    {
+        NVIC_SetPriority((IRQn_Type)irq, 1);
+    }
+}
 
 
 uint32_t Platform_GetDeviceMemoryMapXmlSize(void)

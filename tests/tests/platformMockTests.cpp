@@ -1,4 +1,4 @@
-/* Copyright 2020 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2014 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -16,43 +16,28 @@
 
 extern "C"
 {
-#include <core/platforms.h>
-#include <core/semihost.h>
-#include <core/try_catch.h>
-#include <core/token.h>
+#include "platforms.h"
+#include "semihost.h"
+#include "try_catch.h"
+#include "token.h"
 }
 #include "platformMock.h"
 
 // Include C++ headers for test harness.
 #include "CppUTest/TestHarness.h"
 
-#define UNTOUCHED_STATE ((PlatformThreadState)-1)
-
-
 TEST_GROUP(platformMock)
 {
-    enum { THREAD_COUNT = 3 };
-
-    Token              m_token;
-    PlatformMockThread m_threads[THREAD_COUNT];
-    uint32_t           m_expectedInvalidAttempts;
-
+    Token   m_token;
+    
     void setup()
     {
         platformMock_Init();
         Token_Init(&m_token);
-        m_threads[0].threadId = 0x5A5A5A5A;
-        m_threads[0].state = UNTOUCHED_STATE;
-        m_threads[1].threadId = 0xBAADF00D;
-        m_threads[1].state = UNTOUCHED_STATE;
-        m_threads[2].threadId = 0xBAADFEED;
-        m_threads[2].state = UNTOUCHED_STATE;
-        m_expectedInvalidAttempts = 0;
     }
 
     void teardown()
     {
-        LONGS_EQUAL( m_expectedInvalidAttempts, platformMock_RtosGetThreadStateInvalidAttempts() );
         LONGS_EQUAL( noException , getExceptionCode() );
         platformMock_Uninit();
         clearExceptionCode();
@@ -63,7 +48,7 @@ TEST_GROUP(platformMock)
         POINTERS_EQUAL( m_token.pTokenSeparators, pTokenCopy->pTokenSeparators );
         LONGS_EQUAL( m_token.tokenCount, pTokenCopy->tokenCount );
         STRCMP_EQUAL( m_token.copyOfString, pTokenCopy->copyOfString );
-
+        
         for (size_t i = 0 ; i < m_token.tokenCount ; i++)
         {
             STRCMP_EQUAL( m_token.tokenPointers[i], pTokenCopy->tokenPointers[i] );
@@ -74,7 +59,7 @@ TEST_GROUP(platformMock)
 TEST(platformMock, Platform_CommHasRecieveData_Empty)
 {
     static const char emptyData[] = "";
-
+    
     platformMock_CommInitReceiveData(emptyData);
     CHECK_FALSE( Platform_CommHasReceiveData() );
 }
@@ -82,7 +67,7 @@ TEST(platformMock, Platform_CommHasRecieveData_Empty)
 TEST(platformMock, Platform_CommHasRecieveData_NotEmpty)
 {
     static const char testData[] = "$";
-
+    
     platformMock_CommInitReceiveData(testData);
     CHECK_TRUE( Platform_CommHasReceiveData() );
 }
@@ -90,7 +75,7 @@ TEST(platformMock, Platform_CommHasRecieveData_NotEmpty)
 TEST(platformMock, Platform_CommRecieveChar_NotEmpty)
 {
     static const char testData[] = "$";
-
+    
     platformMock_CommInitReceiveData(testData);
     LONGS_EQUAL( '$', Platform_CommReceiveChar() );
 }
@@ -101,7 +86,7 @@ TEST(platformMock, Platform_CommHasReceiveData_SwitchToEmptyGdbPacket)
     static const char emptyGdbPacket[] = "$#00";
     char              buffer[16];
     char*             p = buffer;
-
+    
     platformMock_CommInitReceiveData(emptyData);
     CHECK_FALSE( Platform_CommHasReceiveData() );
     CHECK_TRUE( Platform_CommHasReceiveData() );
@@ -120,7 +105,7 @@ TEST(platformMock, Platform_CommReceiveChar_SwitchToEmptyGdbPacket)
     static const char emptyGdbPacket[] = "$#00";
     char              buffer[16];
     char*             p = buffer;
-
+    
     platformMock_CommInitReceiveData(emptyData);
 
     do
@@ -128,7 +113,7 @@ TEST(platformMock, Platform_CommReceiveChar_SwitchToEmptyGdbPacket)
         *p++ = (char)Platform_CommReceiveChar();
     }
     while (Platform_CommHasReceiveData());
-
+    
     LONGS_EQUAL ( strlen(emptyGdbPacket), (p - buffer) );
     CHECK( 0 == memcmp(emptyGdbPacket, buffer, strlen(emptyGdbPacket)) );
 }
@@ -138,9 +123,9 @@ TEST(platformMock, platformMock_CommReceiveEmptyGdbPacket)
     static const char emptyGdbPacket[] = "$#00";
     char              buffer[16];
     char*             p = buffer;
-
+    
     platformMock_CommInitReceiveData(emptyGdbPacket);
-
+    
     while (Platform_CommHasReceiveData())
     {
         *p++ = (char)Platform_CommReceiveChar();
@@ -155,9 +140,9 @@ TEST(platformMock, platformMock_CommReceive_TwoGdbPackets)
     static const char packet2[] = "$packet2#ff";
     char              buffer[16];
     char*             p = buffer;
-
+    
     platformMock_CommInitReceiveData(packet1, packet2);
-
+    
     while (Platform_CommHasReceiveData())
     {
         *p++ = (char)Platform_CommReceiveChar();
@@ -172,6 +157,8 @@ TEST(platformMock, platformMock_CommReceive_TwoGdbPackets)
     }
     LONGS_EQUAL ( strlen(packet2), (p - buffer) );
     CHECK( 0 == memcmp(packet2, buffer, strlen(packet2)) );
+
+    CHECK_FALSE( Platform_CommHasReceiveData() );
 }
 
 TEST(platformMock, platformMock_CommReceive_TwoGdbPacketsWithCalculatedCRC)
@@ -182,74 +169,9 @@ TEST(platformMock, platformMock_CommReceive_TwoGdbPacketsWithCalculatedCRC)
     static const char checksummedPacket2[] = "$packet2#aa";
     char              buffer[16];
     char*             p = buffer;
-
+    
     platformMock_CommInitReceiveChecksummedData(packet1, packet2);
-
-    while (Platform_CommHasReceiveData())
-    {
-        *p++ = (char)Platform_CommReceiveChar();
-    }
-    LONGS_EQUAL ( strlen(checksummedPacket1), (p - buffer) );
-    CHECK( 0 == memcmp(checksummedPacket1, buffer, strlen(checksummedPacket1)) );
-
-    p = buffer;
-    while (Platform_CommHasReceiveData())
-    {
-        *p++ = (char)Platform_CommReceiveChar();
-    }
-    LONGS_EQUAL ( strlen(checksummedPacket2), (p - buffer) );
-    CHECK( 0 == memcmp(checksummedPacket2, buffer, strlen(checksummedPacket2)) );
-}
-
-TEST(platformMock, platformMock_CommReceive_ThreeGdbPackets)
-{
-    static const char packet1[] = "$packet1#00";
-    static const char packet2[] = "$packet2#ff";
-    static const char packet3[] = "$packet3#80";
-    char              buffer[16];
-    char*             p = buffer;
-
-    platformMock_CommInitReceiveData(packet1, packet2, packet3);
-
-    while (Platform_CommHasReceiveData())
-    {
-        *p++ = (char)Platform_CommReceiveChar();
-    }
-    LONGS_EQUAL ( strlen(packet1), (p - buffer) );
-    CHECK( 0 == memcmp(packet1, buffer, strlen(packet1)) );
-
-    p = buffer;
-    while (Platform_CommHasReceiveData())
-    {
-        *p++ = (char)Platform_CommReceiveChar();
-    }
-    LONGS_EQUAL ( strlen(packet2), (p - buffer) );
-    CHECK( 0 == memcmp(packet2, buffer, strlen(packet2)) );
-
-    p = buffer;
-    while (Platform_CommHasReceiveData())
-    {
-        *p++ = (char)Platform_CommReceiveChar();
-    }
-    LONGS_EQUAL ( strlen(packet3), (p - buffer) );
-    CHECK( 0 == memcmp(packet3, buffer, strlen(packet3)) );
-
-    CHECK_FALSE( Platform_CommHasReceiveData() );
-}
-
-TEST(platformMock, platformMock_CommReceive_ThreeGdbPacketsWithCalculatedCRC)
-{
-    static const char packet1[] = "$packet1#";
-    static const char packet2[] = "$packet2#";
-    static const char packet3[] = "$packet3#";
-    static const char checksummedPacket1[] = "$packet1#a9";
-    static const char checksummedPacket2[] = "$packet2#aa";
-    static const char checksummedPacket3[] = "$packet3#ab";
-    char              buffer[16];
-    char*             p = buffer;
-
-    platformMock_CommInitReceiveChecksummedData(packet1, packet2, packet3);
-
+    
     while (Platform_CommHasReceiveData())
     {
         *p++ = (char)Platform_CommReceiveChar();
@@ -265,70 +187,57 @@ TEST(platformMock, platformMock_CommReceive_ThreeGdbPacketsWithCalculatedCRC)
     LONGS_EQUAL ( strlen(checksummedPacket2), (p - buffer) );
     CHECK( 0 == memcmp(checksummedPacket2, buffer, strlen(checksummedPacket2)) );
 
-    p = buffer;
-    while (Platform_CommHasReceiveData())
-    {
-        *p++ = (char)Platform_CommReceiveChar();
-    }
-    LONGS_EQUAL ( strlen(checksummedPacket3), (p - buffer) );
-    CHECK( 0 == memcmp(checksummedPacket3, buffer, strlen(checksummedPacket3)) );
-
     CHECK_FALSE( Platform_CommHasReceiveData() );
 }
 
-TEST(platformMock, CommChecksummedData_NoPacketJustNack)
+TEST(platformMock, TransmitAndCapture1Byte)
 {
-    STRCMP_EQUAL( "-", platformMock_CommChecksumData("-") );
-}
-
-TEST(platformMock, CommChecksummedData_Ack_EmptyPacket_Ack)
-{
-    STRCMP_EQUAL( "+$#00+", platformMock_CommChecksumData("+$#+") );
-}
-
-TEST(platformMock, CommChecksummedData_Ack_SmallPacket_Nack)
-{
-    STRCMP_EQUAL( "+$test#c0-", platformMock_CommChecksumData("+$test#-") );
-}
-
-TEST(platformMock, CommGetTransmittedData_Transmit1Byte)
-{
-    platformMock_CommInitTransmitDataBuffer(1);
+    platformMock_CommInitTransmitDataBuffer(2);
 
     Platform_CommSendChar('-');
 
-    STRCMP_EQUAL( "-", platformMock_CommGetTransmittedData() );
+    CHECK_TRUE( platformMock_CommDoesTransmittedDataEqual("-") );
 }
 
-TEST(platformMock, CommGetTransmittedData_TransmitEmptyPacket)
+TEST(platformMock, TransmitAndCapture2BytesWithOverflow)
 {
-    platformMock_CommInitTransmitDataBuffer(4);
+    platformMock_CommInitTransmitDataBuffer(2);
 
-    Platform_CommSendChar('$');
-    Platform_CommSendChar('#');
-    Platform_CommSendChar('0');
-    Platform_CommSendChar('0');
+    Platform_CommSendChar('-');
+    Platform_CommSendChar('+');
+    Platform_CommSendChar('*');
 
-    STRCMP_EQUAL( "$#00", platformMock_CommGetTransmittedData() );
+    CHECK_TRUE( platformMock_CommDoesTransmittedDataEqual("-+") );
 }
 
-TEST(platformMock, Platform_CommHasDataToTransmit_MockAlwaysReturnsFalseAndGetsCounted)
+TEST(platformMock, TransmitAndFailToCompareByLength)
 {
-    LONGS_EQUAL( 0, platformMock_CommGetHasTransmitCompletedCallCount() );
-    CHECK_TRUE( Platform_CommHasTransmitCompleted() );
-    LONGS_EQUAL( 1, platformMock_CommGetHasTransmitCompletedCallCount() );
+    platformMock_CommInitTransmitDataBuffer(2);
+
+    Platform_CommSendChar('-');
+
+    CHECK_FALSE( platformMock_CommDoesTransmittedDataEqual("-+") );
+}
+
+TEST(platformMock, TransmitAndFailToCompareByData)
+{
+    platformMock_CommInitTransmitDataBuffer(2);
+
+    Platform_CommSendChar('-');
+
+    CHECK_FALSE( platformMock_CommDoesTransmittedDataEqual("+") );
 }
 
 TEST(platformMock, platformMockInit_ThrowException)
 {
     int exceptionThrown = 0;
     platformMock_SetInitException(timeoutException);
-
+    
     __try
        Platform_Init(&m_token);
     __catch
         exceptionThrown = 1;
-
+    
     LONGS_EQUAL( 1, exceptionThrown );
     LONGS_EQUAL( timeoutException, getExceptionCode() );
     clearExceptionCode();
@@ -344,11 +253,30 @@ TEST(platformMock, platformMockInit_GetCallCount)
 TEST(platformMock, platformMockInit_GetInitTokenCopy)
 {
     Token_SplitString(&m_token, "Test Tokens");
-
+    
     Platform_Init(&m_token);
-
+    
     Token* pTokenCopy = platformMock_GetInitTokenCopy();
     validateTokenCopy(pTokenCopy);
+}
+
+TEST(platformMock, Platform_CommCausedInterruptReturnsFalseByDefault)
+{
+    CHECK_FALSE( Platform_CommCausedInterrupt() );
+}
+
+TEST(platformMock, Platform_CommCausedInterruptReturnsTrueAfterSettingInMock)
+{
+    platformMock_CommSetInterruptBit(1);
+    CHECK_TRUE( Platform_CommCausedInterrupt() );
+}
+
+TEST(platformMock, Platform_CommCausedInterruptReturnsFalseAfterClearing)
+{
+    platformMock_CommSetInterruptBit(1);
+    CHECK_TRUE( Platform_CommCausedInterrupt() );
+    Platform_CommClearInterrupt();
+    CHECK_FALSE( Platform_CommCausedInterrupt() );
 }
 
 TEST(platformMock, Platform_EnteringDebugger_CountCalls)
@@ -367,6 +295,50 @@ TEST(platformMock, Platform_LeavingDebugger_CountCalls)
     CHECK_EQUAL( 1, platformMock_GetLeavingDebuggerCalls() );
         Platform_LeavingDebugger();
     CHECK_EQUAL( 2, platformMock_GetLeavingDebuggerCalls() );
+}
+
+TEST(platformMock, Platform_CommShouldWaitForGdbConnect_ReturnsFalseByDefault)
+{
+    CHECK_FALSE( Platform_CommShouldWaitForGdbConnect() );
+}
+
+TEST(platformMock, Platform_CommShouldWaitForGdbConnect_ReturnsTrueAfterSettingInMock)
+{
+    CHECK_FALSE( Platform_CommShouldWaitForGdbConnect() );
+        platformMock_CommSetShouldWaitForGdbConnect(1);
+    CHECK_TRUE( Platform_CommShouldWaitForGdbConnect() );
+}
+
+TEST(platformMock, Platform_CommIsWaitingForGdbToConnect_ReturnsFalseByDefault)
+{
+    CHECK_FALSE( Platform_CommIsWaitingForGdbToConnect() );
+}
+
+TEST(platformMock, Platform_CommIsWaitingForGdbToConnect_ReturnsTrueDefinedNumberOfTimes)
+{
+    platformMock_CommSetIsWaitingForGdbToConnectIterations(2);
+    CHECK_TRUE( Platform_CommIsWaitingForGdbToConnect() );
+    CHECK_TRUE( Platform_CommIsWaitingForGdbToConnect() );
+    CHECK_FALSE( Platform_CommIsWaitingForGdbToConnect() );
+    CHECK_FALSE( Platform_CommIsWaitingForGdbToConnect() );
+}
+
+TEST(platformMock, Platform_CommWaitForReceiveDataToStop_CountCalls)
+{
+    CHECK_EQUAL( 0, platformMock_GetCommWaitForReceiveDataToStopCalls() );
+        Platform_CommWaitForReceiveDataToStop();
+    CHECK_EQUAL( 1, platformMock_GetCommWaitForReceiveDataToStopCalls() );
+        Platform_CommWaitForReceiveDataToStop();
+    CHECK_EQUAL( 2, platformMock_GetCommWaitForReceiveDataToStopCalls() );
+}
+
+TEST(platformMock, Platform_CommPrepareToWaitForGdbConnection_CountCalls)
+{
+    CHECK_EQUAL( 0, platformMock_GetCommPrepareToWaitForGdbConnectionCalls() );
+        Platform_CommPrepareToWaitForGdbConnection();
+    CHECK_EQUAL( 1, platformMock_GetCommPrepareToWaitForGdbConnectionCalls() );
+        Platform_CommPrepareToWaitForGdbConnection();
+    CHECK_EQUAL( 2, platformMock_GetCommPrepareToWaitForGdbConnectionCalls() );
 }
 
 TEST(platformMock, Semihost_HandleSemihostRequest_CountCalls)
@@ -415,6 +387,17 @@ TEST(platformMock, Platform_GetPacketBufferSize_SetSmallSize)
     CHECK_EQUAL (2, Platform_GetPacketBufferSize() );
 }
 
+TEST(platformMock, Platform_CommSharingWithApplication_DefaultsToFalse)
+{
+    CHECK_FALSE ( Platform_CommSharingWithApplication() );
+}
+
+TEST(platformMock, Platform_CommSharingWithApplication_SetToReturnTrue)
+{
+    platformMock_SetCommSharingWithApplication(1);
+    CHECK_TRUE ( Platform_CommSharingWithApplication() );
+}
+
 TEST(platformMock, Platform_TypeOfCurrentInstruction_DefaultsToOther)
 {
     CHECK_EQUAL ( MRI_PLATFORM_INSTRUCTION_OTHER, Platform_TypeOfCurrentInstruction() );
@@ -457,7 +440,7 @@ TEST(platformMock, Platform_EnableSingleStep)
 {
     CHECK_FALSE ( Platform_IsSingleStepping() );
         Platform_EnableSingleStep();
-    CHECK_TRUE ( Platform_IsSingleStepping() );
+    CHECK_TRUE ( Platform_IsSingleStepping() ); 
 }
 
 TEST(platformMock, Platform_WasMemoryFaultEncountered_DefaultToFalse)
@@ -480,72 +463,84 @@ TEST(platformMock, Platform_WasMemoryFaultEncountered_FailSecondCallOnly)
     CHECK_FALSE ( Platform_WasMemoryFaultEncountered() );
 }
 
-TEST(platformMock, Platform_GetContext)
+TEST(platformMock, Platform_CopyContextFromBuffer)
 {
-    uint32_t* pContextEntries = platformMock_GetContextEntries();
-    MriContext* pContext = platformMock_GetContext();
-
-    pContextEntries[0] = 0x11111111;
-    pContextEntries[1] = 0x22222222;
-    pContextEntries[2] = 0x33333333;
-    pContextEntries[3] = 0x44444444;
-    LONGS_EQUAL ( 0x11111111, Context_Get(pContext, 0) );
-    LONGS_EQUAL ( 0x22222222, Context_Get(pContext, 1) );
-    LONGS_EQUAL ( 0x33333333, Context_Get(pContext, 2) );
-    LONGS_EQUAL ( 0x44444444, Context_Get(pContext, 3) );
-
-    Context_Set(pContext, 0, 0xAAAAAAAA);
-    Context_Set(pContext, 1, 0xBBBBBBBB);
-    Context_Set(pContext, 2, 0xCCCCCCCC);
-    Context_Set(pContext, 3, 0xDDDDDDDD);
-    LONGS_EQUAL ( 0xAAAAAAAA, pContextEntries[0] );
-    LONGS_EQUAL ( 0xBBBBBBBB, pContextEntries[1] );
-    LONGS_EQUAL ( 0xCCCCCCCC, pContextEntries[2] );
-    LONGS_EQUAL ( 0xDDDDDDDD, pContextEntries[3] );
+    const char data[] = "11111111222222223333333344444444";
+    Buffer     buffer;
+    uint32_t*  pContext;
+    
+    Buffer_Init(&buffer, (char*)data, sizeof(data)-1);
+        Platform_CopyContextFromBuffer(&buffer);
+    pContext = platformMock_GetContext();
+    CHECK_EQUAL ( 0x11111111, pContext[0] );
+    CHECK_EQUAL ( 0x22222222, pContext[1] );
+    CHECK_EQUAL ( 0x33333333, pContext[2] );
+    CHECK_EQUAL ( 0x44444444, pContext[3] );
 }
 
-TEST(platformMock, Platform_SetHardwareBreakpointOfGdbKind_CountCallsAndLastArgs)
+TEST(platformMock, Platform_CopyContextToBuffer)
+{
+    char       data[128];
+    Buffer     buffer;
+    uint32_t*  pContext;
+    
+    pContext = platformMock_GetContext();
+    pContext[0] = 0x11111111;
+    pContext[1] = 0x22222222;
+    pContext[2] = 0x33333333;
+    pContext[3] = 0x44444444;
+    Buffer_Init(&buffer, data, sizeof(data));
+        Platform_CopyContextToBuffer(&buffer);
+    Buffer_SetEndOfBuffer(&buffer);
+    Buffer_Reset(&buffer);
+    CHECK_TRUE ( Buffer_MatchesString(&buffer, "11111111"
+                                               "22222222"
+                                               "33333333"
+                                               "44444444", 32) );
+}
+
+TEST(platformMock, Platform_SetHardwareBreakpoint_CountCallsAndLastArgs)
 {
     CHECK_EQUAL( 0, platformMock_SetHardwareBreakpointCalls() );
     CHECK_EQUAL( 0, platformMock_SetHardwareBreakpointAddressArg() );
     CHECK_EQUAL( 0, platformMock_SetHardwareBreakpointKindArg() );
-        Platform_SetHardwareBreakpointOfGdbKind(0xDEADBEEF, 0xBAADF00D);
+        Platform_SetHardwareBreakpoint(0xDEADBEEF, 0xBAADF00D);
     CHECK_EQUAL( 1, platformMock_SetHardwareBreakpointCalls() );
     CHECK_EQUAL( 0xDEADBEEF, platformMock_SetHardwareBreakpointAddressArg() );
     CHECK_EQUAL( 0xBAADF00D, platformMock_SetHardwareBreakpointKindArg() );
-        Platform_SetHardwareBreakpointOfGdbKind(0xBAADF00D, 0xDEADBEEF);
+        Platform_SetHardwareBreakpoint(0xBAADF00D, 0xDEADBEEF);
     CHECK_EQUAL( 2, platformMock_SetHardwareBreakpointCalls() );
     CHECK_EQUAL( 0xBAADF00D, platformMock_SetHardwareBreakpointAddressArg() );
     CHECK_EQUAL( 0xDEADBEEF, platformMock_SetHardwareBreakpointKindArg() );
 }
 
-TEST(platformMock, Platform_SetHardwareBreakpointOfGdbKind_Throwing)
+TEST(platformMock, Platform_SetHardwareBreakpoint_Throwing)
 {
     platformMock_SetHardwareBreakpointException(invalidArgumentException);
-        Platform_SetHardwareBreakpointOfGdbKind(0xDEADBEEF, 0xBAADF00D);
+        Platform_SetHardwareBreakpoint(0xDEADBEEF, 0xBAADF00D);
     CHECK_EQUAL( invalidArgumentException, getExceptionCode() );
     clearExceptionCode();
 }
 
-TEST(platformMock, Platform_ClearHardwareBreakpointOfGdbKind_CountCallsAndLastArgs)
+TEST(platformMock, Platform_ClearHardwareBreakpoint_CountCallsAndLastArgs)
 {
     CHECK_EQUAL( 0, platformMock_ClearHardwareBreakpointCalls() );
     CHECK_EQUAL( 0, platformMock_ClearHardwareBreakpointAddressArg() );
     CHECK_EQUAL( 0, platformMock_ClearHardwareBreakpointKindArg() );
-        Platform_ClearHardwareBreakpointOfGdbKind(0xDEADBEEF, 0xBAADF00D);
+        Platform_ClearHardwareBreakpoint(0xDEADBEEF, 0xBAADF00D);
     CHECK_EQUAL( 1, platformMock_ClearHardwareBreakpointCalls() );
     CHECK_EQUAL( 0xDEADBEEF, platformMock_ClearHardwareBreakpointAddressArg() );
     CHECK_EQUAL( 0xBAADF00D, platformMock_ClearHardwareBreakpointKindArg() );
-        Platform_ClearHardwareBreakpointOfGdbKind(0xBAADF00D, 0xDEADBEEF);
+        Platform_ClearHardwareBreakpoint(0xBAADF00D, 0xDEADBEEF);
     CHECK_EQUAL( 2, platformMock_ClearHardwareBreakpointCalls() );
     CHECK_EQUAL( 0xBAADF00D, platformMock_ClearHardwareBreakpointAddressArg() );
     CHECK_EQUAL( 0xDEADBEEF, platformMock_ClearHardwareBreakpointKindArg() );
 }
 
-TEST(platformMock, Platform_ClearHardwareBreakpointOfGdbKind_Throwing)
+TEST(platformMock, Platform_ClearHardwareBreakpoint_Throwing)
 {
     platformMock_ClearHardwareBreakpointException(invalidArgumentException);
-        Platform_ClearHardwareBreakpointOfGdbKind(0xDEADBEEF, 0xBAADF00D);
+        Platform_ClearHardwareBreakpoint(0xDEADBEEF, 0xBAADF00D);
     CHECK_EQUAL( invalidArgumentException, getExceptionCode() );
     clearExceptionCode();
 }
@@ -628,253 +623,4 @@ TEST(platformMock, Platform_SetSemihostCallReturnValue_GetValue)
         Platform_SetSemihostCallReturnAndErrnoValues(0x12345678, 0x87654321);
     CHECK_EQUAL ( 0x12345678, platformMock_GetSemihostCallReturnValue() );
     CHECK_EQUAL ( (int)0x87654321, platformMock_GetSemihostCallErrno() );
-}
-
-
-TEST(platformMock, Platform_ResetDevice_CountCalls)
-{
-    CHECK_EQUAL( 0, platformMock_GetResetDeviceCalls() );
-        Platform_ResetDevice();
-    CHECK_EQUAL( 1, platformMock_GetResetDeviceCalls() );
-}
-
-
-TEST(platformMock, Platform_DetermineCauseOfException_DefaultsToSIGTRAP)
-{
-    CHECK_EQUAL( SIGTRAP, Platform_DetermineCauseOfException() );
-}
-
-TEST(platformMock, Platform_DetermineCauseOfException_SetToReturnSIGINT)
-{
-    platformMock_SetCauseOfException(SIGINT);
-    CHECK_EQUAL( SIGINT, Platform_DetermineCauseOfException() );
-}
-
-TEST(platformMock, Platform_GetTrapResponse_DefaultsToUnknownTrapType)
-{
-    PlatformTrapReason reason = Platform_GetTrapReason();
-    CHECK_EQUAL ( MRI_PLATFORM_TRAP_TYPE_UNKNOWN, reason.type );
-}
-
-TEST(platformMock, Platform_GetTrapResponse_MakeSureMockCanReturnOtherTypesAndNonZeroAddresses)
-{
-    PlatformTrapReason reasonSet;
-    PlatformTrapReason reasonActual;
-
-    // HWBREAK
-    reasonSet.type = MRI_PLATFORM_TRAP_TYPE_HWBREAK;
-    reasonSet.address = 0xFFFFFFFF;
-    platformMock_SetTrapReason(&reasonSet);
-    reasonActual = Platform_GetTrapReason();
-    CHECK_EQUAL( MRI_PLATFORM_TRAP_TYPE_HWBREAK, reasonActual.type );
-    CHECK_EQUAL( 0xFFFFFFFF, reasonActual.address );
-
-    // SWBREAK
-    reasonSet.type = MRI_PLATFORM_TRAP_TYPE_SWBREAK;
-    reasonSet.address = 0x00001000;
-    platformMock_SetTrapReason(&reasonSet);
-    reasonActual = Platform_GetTrapReason();
-    CHECK_EQUAL( MRI_PLATFORM_TRAP_TYPE_SWBREAK, reasonActual.type );
-    CHECK_EQUAL( 0x00001000, reasonActual.address );
-
-    // WATCH
-    reasonSet.type = MRI_PLATFORM_TRAP_TYPE_WATCH;
-    reasonSet.address = 0x20000000;
-    platformMock_SetTrapReason(&reasonSet);
-    reasonActual = Platform_GetTrapReason();
-    CHECK_EQUAL( MRI_PLATFORM_TRAP_TYPE_WATCH, reasonActual.type );
-    CHECK_EQUAL( 0x20000000, reasonActual.address );
-
-    // RWATCH
-    reasonSet.type = MRI_PLATFORM_TRAP_TYPE_RWATCH;
-    reasonSet.address = 0x20000002;
-    platformMock_SetTrapReason(&reasonSet);
-    reasonActual = Platform_GetTrapReason();
-    CHECK_EQUAL( MRI_PLATFORM_TRAP_TYPE_RWATCH, reasonActual.type );
-    CHECK_EQUAL( 0x20000002, reasonActual.address );
-
-    // AWATCH
-    reasonSet.type = MRI_PLATFORM_TRAP_TYPE_AWATCH;
-    reasonSet.address = 0x2FFFFFFC;
-    platformMock_SetTrapReason(&reasonSet);
-    reasonActual = Platform_GetTrapReason();
-    CHECK_EQUAL( MRI_PLATFORM_TRAP_TYPE_AWATCH, reasonActual.type );
-    CHECK_EQUAL( 0x2FFFFFFC, reasonActual.address );
-}
-
-
-
-TEST(platformMock, Platform_RtosGetHaltedThreadId_MockDefaultsToZero)
-{
-    CHECK_EQUAL( 0, Platform_RtosGetHaltedThreadId() );
-}
-
-TEST(platformMock, Platform_RtosGetHaltedThreadId_MakeSureMockCanReturnNonZeroValue)
-{
-    platformMock_RtosSetHaltedThreadId(0xBAADF00D);
-    CHECK_EQUAL( 0xBAADF00D, Platform_RtosGetHaltedThreadId() );
-}
-
-TEST(platformMock, Platform_RtosGetFirstThreadId_MockDefaultsToNull)
-{
-    CHECK_EQUAL( 0, Platform_RtosGetFirstThreadId() )
-}
-
-TEST(platformMock, Platform_RtosGetFirstThreadId_ReturnFirstThread)
-{
-    uint32_t testArray[] = { 0x12345678 };
-
-    platformMock_RtosSetThreads(testArray, sizeof(testArray)/sizeof(testArray[0]));
-    CHECK_EQUAL( 0x12345678, Platform_RtosGetFirstThreadId() )
-}
-
-TEST(platformMock, Platform_RtosGetNextThreadIdWhenOnlyOneThread_ShouldReturn0)
-{
-    uint32_t testArray[] = { 0x12345678 };
-
-    platformMock_RtosSetThreads(testArray, sizeof(testArray)/sizeof(testArray[0]));
-    CHECK_EQUAL( 0x12345678, Platform_RtosGetFirstThreadId() )
-    CHECK_EQUAL( 0, Platform_RtosGetNextThreadId() )
-}
-
-TEST(platformMock, Platform_RtosGetNextThreadIdWhenTwoThreads)
-{
-    uint32_t testArray[] = { 0x12345678, 0xbaadf00d };
-
-    platformMock_RtosSetThreads(testArray, sizeof(testArray)/sizeof(testArray[0]));
-    CHECK_EQUAL( 0x12345678, Platform_RtosGetFirstThreadId() )
-    CHECK_EQUAL( 0xbaadf00d, Platform_RtosGetNextThreadId() )
-    CHECK_EQUAL( 0, Platform_RtosGetNextThreadId() )
-}
-
-TEST(platformMock, Platform_RtosGetNextThreadId_SkipNullThread)
-{
-    uint32_t testArray[] = { 0x12345678, 0x00000000, 0xbaadf00d };
-
-    platformMock_RtosSetThreads(testArray, sizeof(testArray)/sizeof(testArray[0]));
-    CHECK_EQUAL( 0x12345678, Platform_RtosGetFirstThreadId() )
-    CHECK_EQUAL( 0xbaadf00d, Platform_RtosGetNextThreadId() )
-    CHECK_EQUAL( 0, Platform_RtosGetNextThreadId() )
-}
-
-TEST(platformMock, Platform_RtosGetExtraThreadInfo_MockDefaultsToNULL)
-{
-    CHECK_EQUAL( NULL, Platform_RtosGetExtraThreadInfo(0xbaadbeef) );
-}
-
-TEST(platformMock, Platform_RtosGetExtraThreadInfo_ReturnsSetStringWhenThreadIdMatches_AndNullWhenItDoesNot)
-{
-    const char* pTestString = "TestString";
-
-    platformMock_RtosSetExtraThreadInfo(0xbaadbeef, pTestString);
-    CHECK_EQUAL( pTestString, Platform_RtosGetExtraThreadInfo(0xbaadbeef) );
-    CHECK_EQUAL( NULL, Platform_RtosGetExtraThreadInfo(0xbaadf00d) );
-}
-
-TEST(platformMock, Platform_RtosGetThreadContext_MockDefaultsToNULL)
-{
-    CHECK_EQUAL( NULL, Platform_RtosGetThreadContext(0xbaadbeef) );
-}
-
-TEST(platformMock, Platform_RtosGetThreadContext_ReturnsSetContextWhenThreadIdMatches_AndNullWhenItDoesNot)
-{
-    MriContext context = { NULL, 0 };
-
-    platformMock_RtosSetThreadContext(0xbaadbeef, &context);
-    CHECK_EQUAL( &context, Platform_RtosGetThreadContext(0xbaadbeef) );
-    CHECK_EQUAL( NULL, Platform_RtosGetThreadContext(0xbaadf00d) );
-}
-
-TEST(platformMock, Platform_RtosIsThreadAcive_MockDefaultsToFalse)
-{
-    CHECK_FALSE( Platform_RtosIsThreadActive(0xbaadbeef) );
-}
-
-TEST(platformMock, Platform_RtosIsThreadActive_ReturnsTrueWhenThreadIdMatches_AndFalseWhenItDoesNot)
-{
-    platformMock_RtosSetActiveThread(0xbaadbeef);
-    CHECK_TRUE( Platform_RtosIsThreadActive(0xbaadbeef) );
-    CHECK_FALSE( Platform_RtosIsThreadActive(0xbaadf00d) );
-}
-
-TEST(platformMock, Platform_RtosIsSetThreadStateSupported_MockDefaultsToFalse)
-{
-    CHECK_FALSE( Platform_RtosIsSetThreadStateSupported() );
-}
-
-TEST(platformMock, Platform_RtosIsSetThreadStateSupported_ReturnsTrueAfterSetting)
-{
-    platformMock_RtosSetIsSetThreadStateSupported(1);
-    CHECK_TRUE( Platform_RtosIsSetThreadStateSupported() );
-}
-
-TEST(platformMock, Platform_RtosSetThreadState_SetSpecificThreadToAllStates_VerifyCorrectStateSetInArray)
-{
-    platformMock_RtosSetThreadList(m_threads, THREAD_COUNT);
-    Platform_RtosSetThreadState(0xBAADF00D, MRI_PLATFORM_THREAD_FROZEN);
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_FROZEN, m_threads[1].state );
-    Platform_RtosSetThreadState(0xBAADF00D, MRI_PLATFORM_THREAD_THAWED);
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_THAWED, m_threads[1].state );
-    Platform_RtosSetThreadState(0xBAADF00D, MRI_PLATFORM_THREAD_SINGLE_STEPPING);
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_SINGLE_STEPPING, m_threads[1].state );
-
-    // Other threads shouldn't be modified.
-    LONGS_EQUAL( UNTOUCHED_STATE, m_threads[0].state );
-    LONGS_EQUAL( UNTOUCHED_STATE, m_threads[2].state );
-}
-
-TEST(platformMock, Platform_RtosSetThreadState_SetAllThreadsToAllStates_VerifyCorrectStateSetInArray)
-{
-    platformMock_RtosSetThreadList(m_threads, THREAD_COUNT);
-
-    Platform_RtosSetThreadState(MRI_PLATFORM_ALL_THREADS, MRI_PLATFORM_THREAD_THAWED);
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_THAWED, m_threads[0].state );
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_THAWED, m_threads[1].state );
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_THAWED, m_threads[2].state );
-
-    Platform_RtosSetThreadState(MRI_PLATFORM_ALL_THREADS, MRI_PLATFORM_THREAD_FROZEN);
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_FROZEN, m_threads[0].state );
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_FROZEN, m_threads[1].state );
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_FROZEN, m_threads[2].state );
-
-    Platform_RtosSetThreadState(MRI_PLATFORM_ALL_THREADS, MRI_PLATFORM_THREAD_SINGLE_STEPPING);
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_SINGLE_STEPPING, m_threads[0].state );
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_SINGLE_STEPPING, m_threads[1].state );
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_SINGLE_STEPPING, m_threads[2].state );
-}
-
-TEST(platformMock, Platform_RtosSetThreadState_SetAllFrozenThreadsToThawed_VerifyCorrectStateSetInArray)
-{
-    m_threads[0].state = MRI_PLATFORM_THREAD_FROZEN;
-    m_threads[1].state = MRI_PLATFORM_THREAD_SINGLE_STEPPING;
-    m_threads[2].state = MRI_PLATFORM_THREAD_FROZEN;
-    platformMock_RtosSetThreadList(m_threads, THREAD_COUNT);
-
-    Platform_RtosSetThreadState(MRI_PLATFORM_ALL_FROZEN_THREADS, MRI_PLATFORM_THREAD_THAWED);
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_THAWED, m_threads[0].state );
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_SINGLE_STEPPING, m_threads[1].state );
-    LONGS_EQUAL( MRI_PLATFORM_THREAD_THAWED, m_threads[2].state );
-}
-
-TEST(platformMock, Platform_RtosSetThreadState_SetOnInvalidThread_VerifyInvalidAttemptCountIs1)
-{
-    platformMock_RtosSetThreadList(m_threads, THREAD_COUNT);
-    Platform_RtosSetThreadState(0x11223344, MRI_PLATFORM_THREAD_FROZEN);
-    m_expectedInvalidAttempts = 1;
-    LONGS_EQUAL( 1, platformMock_RtosGetThreadStateInvalidAttempts() );
-
-    // None of the threads should be modified.
-    LONGS_EQUAL( UNTOUCHED_STATE, m_threads[0].state );
-    LONGS_EQUAL( UNTOUCHED_STATE, m_threads[1].state );
-    LONGS_EQUAL( UNTOUCHED_STATE, m_threads[2].state );
-}
-
-
-TEST(platformMock, Platform_RtosRestorePrevThreadState_VerifyCallCount)
-{
-    LONGS_EQUAL( 0, platformMock_RtosGetRestorePrevThreadStateCallCount() );
-    Platform_RtosRestorePrevThreadState();
-    LONGS_EQUAL( 1, platformMock_RtosGetRestorePrevThreadStateCallCount() );
-    Platform_RtosRestorePrevThreadState();
-    LONGS_EQUAL( 2, platformMock_RtosGetRestorePrevThreadStateCallCount() );
 }

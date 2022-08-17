@@ -1,4 +1,4 @@
-/* Copyright 2020 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2017 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -17,68 +17,63 @@
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
-#include <core/mri.h>
-#include <core/buffer.h>
-#include <core/hex_convert.h>
-#include <core/try_catch.h>
-#include <core/packet.h>
-#include <core/token.h>
-#include <core/core.h>
-#include <core/platforms.h>
-#include <core/posix4win.h>
-#include <core/semihost.h>
-#include <core/cmd_common.h>
-#include <core/cmd_file.h>
-#include <core/cmd_registers.h>
-#include <core/cmd_memory.h>
-#include <core/cmd_continue.h>
-#include <core/cmd_query.h>
-#include <core/cmd_break_watch.h>
-#include <core/cmd_step.h>
-#include <core/cmd_thread.h>
-#include <core/cmd_vcont.h>
-#include <core/memory.h>
+#include "mri.h"
+#include "buffer.h"
+#include "hex_convert.h"
+#include "try_catch.h"
+#include "packet.h"
+#include "token.h"
+#include "core.h"
+#include "platforms.h"
+#include "posix4win.h"
+#include "semihost.h"
+#include "cmd_common.h"
+#include "cmd_file.h"
+#include "cmd_registers.h"
+#include "cmd_memory.h"
+#include "cmd_continue.h"
+#include "cmd_query.h"
+#include "cmd_break_watch.h"
+#include "cmd_step.h"
+#include "cmd_thread.h"
+#include "memory.h"
 
 
 typedef struct
 {
-    TempBreakpointCallbackPtr   pTempBreakpointCallback;
-    void*                       pvTempBreakpointContext;
-    MriDebuggerHookPtr          pEnteringHook;
-    MriDebuggerHookPtr          pLeavingHook;
-    void*                       pvEnteringLeavingContext;
-    MriContext*                 pContext;
-    Packet                      packet;
-    Buffer                      buffer;
-    uint32_t                    tempBreakpointAddress;
-    uint32_t                    flags;
-    AddressRange                rangeForSingleStepping;
-    int                         semihostReturnCode;
-    int                         semihostErrno;
-    uint8_t                     signalValue;
+    Packet      packet;
+    Buffer      buffer;
+    uint32_t    flags;
+    int         semihostReturnCode;
+    int         semihostErrno;
+    uint8_t     signalValue;
 } MriCore;
 
 static MriCore g_mri;
 
 /* MriCore::flags bit definitions. */
-#define MRI_FLAGS_SUCCESSFUL_INIT       (1 << 0)
-#define MRI_FLAGS_FIRST_EXCEPTION       (1 << 1)
-#define MRI_FLAGS_SEMIHOST_CTRL_C       (1 << 2)
-#define MRI_FLAGS_TEMP_BREAKPOINT       (1 << 3)
-#define MRI_FLAGS_RESET_ON_CONTINUE     (1 << 4)
-#define MRI_FLAGS_RANGED_SINGLE_STEP    (1 << 5)
+#define MRI_FLAGS_SUCCESSFUL_INIT   1
+#define MRI_FLAGS_FIRST_EXCEPTION   2
+#define MRI_FLAGS_SEMIHOST_CTRL_C   4
 
 /* Calculates the number of items in a static array at compile time. */
 #define ARRAY_SIZE(X) (sizeof(X)/sizeof(X[0]))
+
+/* These two routines can be provided by the debuggee to get notified on debugger entry/exit.  Can be used to safely
+   turn off some external hardware so that it doesn't keep running while sitting at a breakpoint. */
+void __mriPlatform_EnteringDebuggerHook(void) __attribute__((weak));
+void __mriPlatform_LeavingDebuggerHook(void) __attribute__((weak));
+#define Platform_EnteringDebuggerHook __mriPlatform_EnteringDebuggerHook
+#define Platform_LeavingDebuggerHook  __mriPlatform_LeavingDebuggerHook
 
 static void clearCoreStructure(void);
 static void initializePlatformSpecificModulesWithDebuggerParameters(const char* pDebuggerParameters);
 static void setFirstExceptionFlag(void);
 static void setSuccessfulInitFlag(void);
-void mriInit(const char* pDebuggerParameters)
+void __mriInit(const char* pDebuggerParameters)
 {
     clearCoreStructure();
-
+    
     __try
         initializePlatformSpecificModulesWithDebuggerParameters(pDebuggerParameters);
     __catch
@@ -118,167 +113,79 @@ static void setSuccessfulInitFlag(void)
 }
 
 
-static int isTempBreakpointSet(void);
-static uint32_t clearThumbBitOfAddress(uint32_t address);
-static void setTempBreakpointFlag(void);
-int SetTempBreakpoint(uint32_t breakpointAddress, TempBreakpointCallbackPtr pCallback, void* pvContext)
-{
-    if (isTempBreakpointSet())
-        return 0;
-
-    breakpointAddress = clearThumbBitOfAddress(breakpointAddress);
-    __try
-        Platform_SetHardwareBreakpoint(breakpointAddress);
-    __catch
-    {
-        clearExceptionCode();
-        return 0;
-    }
-    g_mri.tempBreakpointAddress = breakpointAddress;
-    g_mri.pTempBreakpointCallback = pCallback;
-    g_mri.pvTempBreakpointContext = pvContext;
-    setTempBreakpointFlag();
-    return 1;
-}
-
-static int isTempBreakpointSet(void)
-{
-    return g_mri.flags & MRI_FLAGS_TEMP_BREAKPOINT;
-}
-
-static uint32_t clearThumbBitOfAddress(uint32_t address)
-{
-    return address & ~1;
-}
-
-static void setTempBreakpointFlag(void)
-{
-    g_mri.flags |= MRI_FLAGS_TEMP_BREAKPOINT;
-}
-
-
-void mriSetDebuggerHooks(MriDebuggerHookPtr pEnteringHook, MriDebuggerHookPtr pLeavingHook, void* pvContext)
-{
-    g_mri.pEnteringHook = pEnteringHook;
-    g_mri.pLeavingHook = pLeavingHook;
-    g_mri.pvEnteringLeavingContext = pvContext;
-}
-
-
-static int wasTempBreakpointHit(void);
-static void clearTempBreakpoint(void);
-static void clearTempBreakpointFlag(void);
-static int areSingleSteppingInRange(void);
-static void clearSingleSteppingInRange(void);
+static void blockIfGdbHasNotConnected(void);
+static void waitForGdbToConnect(void);
+static void waitForFirstCharFromHost(void);
+static int  didHostSendGdbAckChar(void);
 static void determineSignalValue(void);
 static int  isDebugTrap(void);
 static void prepareForDebuggerExit(void);
 static void clearFirstExceptionFlag(void);
-static int hasResetBeenRequested(void);
-static void waitForAckToBeTransmitted(void);
-void mriDebugException(MriContext* pContext)
+void __mriDebugException(void)
 {
-    int justSingleStepped;
-
-    SetContext(pContext);
-    justSingleStepped = Platform_IsSingleStepping();
-
-    if (wasTempBreakpointHit())
+    int wasWaitingForGdbToConnect = IsWaitingForGdbToConnect();
+    int justSingleStepped = Platform_IsSingleStepping();
+    
+    if (Platform_CommCausedInterrupt() && !Platform_CommHasReceiveData())
     {
-        TempBreakpointCallbackPtr pTempBreakpointCallback = g_mri.pTempBreakpointCallback;
-        void* pvTempBreakpointContext = g_mri.pvTempBreakpointContext;
-        int resumeExecution;
-
-        clearTempBreakpoint();
-        if (pTempBreakpointCallback)
-        {
-            resumeExecution = pTempBreakpointCallback(pvTempBreakpointContext);
-            if (resumeExecution)
-            {
-                RestoreThreadStates();
-                return;
-            }
-        }
-    }
-
-    determineSignalValue();
-    if (areSingleSteppingInRange())
-    {
-        uint32_t pc = Platform_GetProgramCounter();
-        if (pc >= g_mri.rangeForSingleStepping.start && pc < g_mri.rangeForSingleStepping.end)
-        {
-            Platform_DisableSingleStep();
-            Platform_EnableSingleStep();
-            RestoreThreadStates();
-            return;
-        }
-    }
-    clearSingleSteppingInRange();
-
-    if (g_mri.pEnteringHook)
-        g_mri.pEnteringHook(g_mri.pvEnteringLeavingContext);
-    Platform_EnteringDebugger();
-
-    if (isDebugTrap() &&
-        Semihost_IsDebuggeeMakingSemihostCall() &&
-        Semihost_HandleSemihostRequest() &&
-        !justSingleStepped )
-    {
-        RestoreThreadStates();
-        prepareForDebuggerExit();
+        Platform_CommClearInterrupt();
         return;
     }
 
-    if (!IsFirstException())
+    Platform_EnteringDebuggerHook();
+    blockIfGdbHasNotConnected();
+    Platform_EnteringDebugger();
+    determineSignalValue();
+    
+    if (isDebugTrap() && 
+        Semihost_IsDebuggeeMakingSemihostCall() && 
+        Semihost_HandleSemihostRequest() &&
+        !justSingleStepped )
+    {
+        prepareForDebuggerExit();
+        return;
+    }
+    
+    if (!wasWaitingForGdbToConnect)
+    {
         Platform_DisplayFaultCauseToGdbConsole();
-    Send_T_StopResponse();
-
+        Send_T_StopResponse();
+    }
+    
     GdbCommandHandlingLoop();
 
     prepareForDebuggerExit();
 }
 
-static int wasTempBreakpointHit(void)
+static void blockIfGdbHasNotConnected(void)
 {
-    return (isTempBreakpointSet() &&
-        clearThumbBitOfAddress(Platform_GetProgramCounter()) == g_mri.tempBreakpointAddress);
+    if (IsWaitingForGdbToConnect())
+        waitForGdbToConnect();
 }
 
-static void clearTempBreakpoint(void)
+static void waitForGdbToConnect(void)
 {
-    __try
-        Platform_ClearHardwareBreakpoint(g_mri.tempBreakpointAddress);
-    __catch
-        clearExceptionCode();
-    g_mri.tempBreakpointAddress = 0;
-    g_mri.pTempBreakpointCallback = NULL;
-    g_mri.pvTempBreakpointContext = NULL;
-    clearTempBreakpointFlag();
-}
-
-static void clearTempBreakpointFlag(void)
-{
-    g_mri.flags &= ~MRI_FLAGS_TEMP_BREAKPOINT;
-}
-
-static int areSingleSteppingInRange(void)
-{
-    // Ignore ranged single stepping if CTRL+C was pressed or...
-    if (g_mri.signalValue == SIGINT)
-        return 0;
-    // if a debug breakpoint/watchpoint was hit.
-    if (g_mri.signalValue == SIGTRAP)
+    for (;;)
     {
-        PlatformTrapReason reason = Platform_GetTrapReason();
-        if (reason.type != MRI_PLATFORM_TRAP_TYPE_UNKNOWN)
-            return 0;
+        waitForFirstCharFromHost();
+        if (didHostSendGdbAckChar())
+            return;
+        Platform_CommWaitForReceiveDataToStop();
+        Platform_CommPrepareToWaitForGdbConnection();
     }
-    return g_mri.flags & MRI_FLAGS_RANGED_SINGLE_STEP;
 }
 
-static void clearSingleSteppingInRange(void)
+static void waitForFirstCharFromHost(void)
 {
-    g_mri.flags &= ~MRI_FLAGS_RANGED_SINGLE_STEP;
+    while (Platform_CommIsWaitingForGdbToConnect())
+    {
+    }
+}
+
+static int didHostSendGdbAckChar(void)
+{
+    return ('+' == Platform_CommReceiveChar());
+    
 }
 
 static void determineSignalValue(void)
@@ -293,27 +200,9 @@ static int isDebugTrap(void)
 
 static void prepareForDebuggerExit(void)
 {
-    if (hasResetBeenRequested()) {
-        waitForAckToBeTransmitted();
-        Platform_ResetDevice();
-    }
     Platform_LeavingDebugger();
-    if (g_mri.pLeavingHook)
-        g_mri.pLeavingHook(g_mri.pvEnteringLeavingContext);
+    Platform_LeavingDebuggerHook();
     clearFirstExceptionFlag();
-}
-
-static int hasResetBeenRequested(void)
-{
-    return (int)(g_mri.flags & MRI_FLAGS_RESET_ON_CONTINUE);
-}
-
-static void waitForAckToBeTransmitted(void)
-{
-    while ( !Platform_CommHasTransmitCompleted() )
-    {
-        // Waiting for ACK to be sent back to GDB for last command received.
-    }
 }
 
 static void clearFirstExceptionFlag(void)
@@ -330,14 +219,13 @@ static void getPacketFromGDB(void);
 void GdbCommandHandlingLoop(void)
 {
     int startDebuggeeUpAgain;
-
+    
     do
     {
         startDebuggeeUpAgain = handleGDBCommand();
     } while (!startDebuggeeUpAgain);
 }
 
-__attribute__((weak)) uint32_t  mriPlatform_HandleGDBComand(Buffer* pBuffer);
 static int handleGDBCommand(void)
 {
     Buffer*         pBuffer = GetBuffer();
@@ -353,7 +241,6 @@ static int handleGDBCommand(void)
         {Send_T_StopResponse,                       '?'},
         {HandleContinueCommand,                     'c'},
         {HandleContinueWithSignalCommand,           'C'},
-        {HandleDetachCommand,                       'D'},
         {HandleFileIOCommand,                       'F'},
         {HandleRegisterReadCommand,                 'g'},
         {HandleRegisterWriteCommand,                'G'},
@@ -364,35 +251,34 @@ static int handleGDBCommand(void)
         {HandleSingleStepCommand,                   's'},
         {HandleSingleStepWithSignalCommand,         'S'},
         {HandleIsThreadActiveCommand,               'T'},
-        {HandleVContCommands,                       'v'},
         {HandleBinaryMemoryWriteCommand,            'X'},
         {HandleBreakpointWatchpointRemoveCommand,   'z'},
         {HandleBreakpointWatchpointSetCommand,      'Z'}
     };
-
+    
     getPacketFromGDB();
-
-    if (mriPlatform_HandleGDBComand)
-        handlerResult = mriPlatform_HandleGDBComand(pBuffer);
-    if (handlerResult == 0)
+    
+    commandChar = Buffer_ReadChar(pBuffer);
+    for (i = 0 ; i < ARRAY_SIZE(commandTable) ; i++)
     {
-        Buffer_Reset(pBuffer);
-        commandChar = Buffer_ReadChar(pBuffer);
-        for (i = 0 ; i < ARRAY_SIZE(commandTable) ; i++)
+        if (commandTable[i].commandChar == commandChar)
         {
-            if (commandTable[i].commandChar == commandChar)
+            handlerResult = commandTable[i].Handler();
+            if (handlerResult & HANDLER_RETURN_RETURN_IMMEDIATELY)
             {
-                handlerResult = commandTable[i].Handler();
+                return handlerResult & HANDLER_RETURN_RESUME_PROGRAM;
+            }
+            else
+            {
                 break;
             }
         }
-        if (ARRAY_SIZE(commandTable) == i)
-            PrepareEmptyResponseForUnknownCommand();
     }
+    if (ARRAY_SIZE(commandTable) == i)
+        PrepareEmptyResponseForUnknownCommand();
 
-    if ((handlerResult & HANDLER_RETURN_RETURN_IMMEDIATELY) == 0)
-        SendPacketToGdb();
-    return handlerResult & HANDLER_RETURN_RESUME_PROGRAM;
+    SendPacketToGdb();
+    return (handlerResult & HANDLER_RETURN_RESUME_PROGRAM);
 }
 
 static void getPacketFromGDB(void)
@@ -426,27 +312,12 @@ int WasControlCFlagSentFromGdb(void)
     return (int)(g_mri.flags & MRI_FLAGS_SEMIHOST_CTRL_C);
 }
 
-void RequestResetOnNextContinue(void)
+
+int IsWaitingForGdbToConnect(void)
 {
-    g_mri.flags |= MRI_FLAGS_RESET_ON_CONTINUE;
+    return IsFirstException() && Platform_CommShouldWaitForGdbConnect();
 }
 
-void SetSingleSteppingRange(const AddressRange* pRange)
-{
-    g_mri.rangeForSingleStepping = *pRange;
-    g_mri.flags |= MRI_FLAGS_RANGED_SINGLE_STEP;
-}
-
-
-MriContext* GetContext(void)
-{
-    return g_mri.pContext;
-}
-
-void SetContext(MriContext* pContext)
-{
-    g_mri.pContext = pContext;
-}
 
 
 void RecordControlCFlagSentFromGdb(int controlCFlag)

@@ -1,4 +1,4 @@
-/* Copyright 2020 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2016 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -13,11 +13,11 @@
    limitations under the License.
 */
 /* Routines used by mri that are specific to the LPC176x device. */
-#include <core/try_catch.h>
-#include <core/platforms.h>
+#include <try_catch.h>
+#include <platforms.h>
 #include "lpc43xx_init.h"
-#include <architectures/armv7-m/armv7-m.h>
-#include <architectures/armv7-m/debug_cm3.h>
+#include "../../architectures/armv7-m/armv7-m.h"
+#include "../../architectures/armv7-m/debug_cm3.h"
 
 
 static const char g_memoryMapXml4330[] = "<?xml version=\"1.0\"?>"
@@ -39,7 +39,7 @@ static const char g_memoryMapXml4337[] = "<?xml version=\"1.0\"?>"
                                          "<memory type=\"ram\" start=\"0x20000000\" length=\"0x8000\"> </memory>"
                                          "<memory type=\"ram\" start=\"0x20008000\" length=\"0x8000\"> </memory>"
                                          "</memory-map>";
-Lpc43xxState mriLpc43xxState;
+Lpc43xxState __mriLpc43xxState;
 
 
 
@@ -47,21 +47,28 @@ Lpc43xxState mriLpc43xxState;
 void USART0_IRQHandler(void);
 
 
-void mriLpc43xx_Init(Token* pParameterTokens)
+static void defaultExternalInterruptsToPriority1(void);
+void __mriLpc43xx_Init(Token* pParameterTokens)
 {
     /* Reference handler in ASM module to make sure that is gets linked in. */
     void (* volatile dummyReference)(void) = USART0_IRQHandler;
     (void)dummyReference;
 
     __try
-        mriCortexMInit(pParameterTokens, 0, QEI_IRQn);
+        __mriCortexMInit(pParameterTokens);
     __catch
         __rethrow;
 
-    /* mriCortexInit() sets all interrupts to lower priority than debug monitor. Interrupt for UART used by GDB must be
-       elevated to the same level as DebugMon_Handler, so initialize it after calling mriCortexInit().
-    */
-    mriLpc43xxUart_Init(pParameterTokens);
+    defaultExternalInterruptsToPriority1();    
+    __mriLpc43xxUart_Init(pParameterTokens);
+}
+
+static void defaultExternalInterruptsToPriority1(void)
+{
+    int              irq;
+    
+    for (irq = DAC_IRQn ; irq <= QEI_IRQn ; irq++)
+        NVIC_SetPriority((IRQn_Type)irq, 1);
 }
 
 
@@ -77,7 +84,7 @@ uint32_t Platform_GetDeviceMemoryMapXmlSize(void)
 static int isLpc4337(void)
 {
     /* Code running on the LPC4337 will be in internal FLASH which is at higher address than LPC4330 SPIFI FLASH. */
-    return ((uint32_t)mriLpc43xx_Init >= 0x1A000000);
+    return ((uint32_t)__mriLpc43xx_Init >= 0x1A000000);
 }
 
 

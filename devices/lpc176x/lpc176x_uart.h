@@ -1,4 +1,4 @@
-/* Copyright 2012 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2012 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -13,12 +13,12 @@
    limitations under the License.
 */
 /* Routines used to provide LPC176x UART functionality to the mri debugger. */
-#ifndef LPC176X_UART_H_
-#define LPC176X_UART_H_
+#ifndef _LPC176X_UART_H_
+#define _LPC176X_UART_H_
 
 #include <stdint.h>
 #include <LPC17xx.h>
-#include <core/token.h>
+#include <token.h>
 
 typedef struct
 {
@@ -33,6 +33,6 @@ typedef struct
     uint32_t            pinSelectionValue;
 } UartConfiguration;
 
-void mriLpc176xUart_Init(Token* pParameterTokens);
+void __mriLpc176xUart_Init(Token* pParameterTokens);
 
-#endif /* LPC176X_UART_H_ */
+#endif /* _LPC176X_UART_H_ */

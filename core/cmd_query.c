@@ -1,4 +1,4 @@
-/* Copyright 2020 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2014 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -14,14 +14,13 @@
 */
 /* Handler for gdb query commands. */
 #include <string.h>
-#include <core/buffer.h>
-#include <core/core.h>
-#include <core/platforms.h>
-#include <core/mri.h>
-#include <core/cmd_common.h>
-#include <core/cmd_query.h>
-#include <core/gdb_console.h>
-
+#include "buffer.h"
+#include "core.h"
+#include "platforms.h"
+#include "mri.h"
+#include "cmd_common.h"
+#include "cmd_query.h"
+#include <stdio.h>
 
 typedef struct
 {
@@ -41,14 +40,12 @@ static void        validateAnnexIsNull(const char* pAnnex);
 static void        handleQueryTransferReadCommand(AnnexOffsetLength* pArguments);
 static uint32_t    handleQueryTransferFeaturesCommand(void);
 static void        validateAnnexIs(const char* pAnnex, const char* pExpected);
+static uint32_t    handleQueryThreadExtraInfoCommand(void);
 static uint32_t    handleQueryFirstThreadInfoCommand(void);
 static uint32_t    handleQuerySubsequentThreadInfoCommand(void);
 static uint32_t    outputThreadIds(uint32_t threadId);
-static uint32_t    handleQueryThreadExtraInfoCommand(void);
-static uint32_t    handleMonitorCommand(void);
-static uint32_t    handleMonitorResetCommand(void);
-static uint32_t    handleMonitorShowFaultCommand(void);
-static uint32_t    handleMonitorHelpCommand(void);
+static uint32_t    handleQuerySymbolCommand(void);
+
 /* Handle the 'q' command used by gdb to communicate state to debug monitor and vice versa.
 
     Command Format: qSSS
@@ -62,7 +59,7 @@ uint32_t HandleQueryCommand(void)
     static const char   qfThreadInfo[] = "fThreadInfo";
     static const char   qsThreadInfo[] = "sThreadInfo";
     static const char   qThreadExtraInfo[] = "ThreadExtraInfo";
-    static const char   qRcmdCommand[] = "Rcmd";
+    static const char   qSymbol[] = "Symbol";
 
     if (Buffer_MatchesString(pBuffer, qSupportedCommand, sizeof(qSupportedCommand)-1))
     {
@@ -84,9 +81,9 @@ uint32_t HandleQueryCommand(void)
     {
         return handleQueryThreadExtraInfoCommand();
     }
-    else if (Buffer_MatchesString(pBuffer, qRcmdCommand, sizeof(qRcmdCommand)-1))
+    else if (Buffer_MatchesString(pBuffer, qSymbol, sizeof(qSymbol)-1))
     {
-        return handleMonitorCommand();
+        return handleQuerySymbolCommand();
     }
     else
     {
@@ -108,7 +105,7 @@ static uint32_t handleQuerySupportedCommand(void)
 
     Buffer_WriteString(pBuffer, querySupportResponse);
     Buffer_WriteUIntegerAsHex(pBuffer, PacketSize);
-
+    
     return 0;
 }
 
@@ -123,13 +120,13 @@ static uint32_t handleQueryTransferCommand(void)
     Buffer*             pBuffer =GetBuffer();
     static const char   memoryMapObject[] = "memory-map";
     static const char   featureObject[] = "features";
-
+    
     if (!Buffer_IsNextCharEqualTo(pBuffer, ':'))
     {
         PrepareStringResponse(MRI_ERROR_INVALID_ARGUMENT);
         return 0;
     }
-
+    
     if (Buffer_MatchesString(pBuffer, memoryMapObject, sizeof(memoryMapObject)-1))
     {
         return handleQueryTransferMemoryMapCommand();
@@ -153,7 +150,7 @@ static uint32_t handleQueryTransferMemoryMapCommand(void)
 {
     Buffer*             pBuffer = GetBuffer();
     AnnexOffsetLength   arguments;
-
+    
     __try
     {
         __throwing_func( readQueryTransferReadArguments(pBuffer, &arguments) );
@@ -168,7 +165,7 @@ static uint32_t handleQueryTransferMemoryMapCommand(void)
     arguments.pAnnex = Platform_GetDeviceMemoryMapXml();
     arguments.annexSize = Platform_GetDeviceMemoryMapXmlSize();
     handleQueryTransferReadCommand(&arguments);
-
+    
     return 0;
 }
 
@@ -183,7 +180,7 @@ static void readQueryTransferReadArguments(Buffer* pBuffer, AnnexOffsetLength* p
     {
         __throw(invalidArgumentException);
     }
-
+    
     __try
     {
         __throwing_func( pAnnexOffsetLength->pAnnex = readQueryTransferAnnexArgument(pBuffer) );
@@ -199,7 +196,7 @@ static const char* readQueryTransferAnnexArgument(Buffer* pBuffer)
 {
     static const char   targetXmlAnnex[] = "target.xml";
     const char*         pReturn = NULL;
-
+    
     if (Buffer_MatchesString(pBuffer, targetXmlAnnex, sizeof(targetXmlAnnex)-1))
         pReturn = targetXmlAnnex;
 
@@ -236,7 +233,7 @@ static void handleQueryTransferReadCommand(AnnexOffsetLength* pArguments)
     uint32_t length = pArguments->length;
     uint32_t outputBufferSize;
     uint32_t validMemoryMapBytes;
-
+    
     if (offset >= pArguments->annexSize)
     {
         /* Attempt to read past end of XML content so flag with a l only packet. */
@@ -248,7 +245,7 @@ static void handleQueryTransferReadCommand(AnnexOffsetLength* pArguments)
     {
         validMemoryMapBytes = pArguments->annexSize - offset;
     }
-
+    
     InitBuffer();
     outputBufferSize = Buffer_BytesLeft(pBuffer);
 
@@ -260,7 +257,7 @@ static void handleQueryTransferReadCommand(AnnexOffsetLength* pArguments)
         dataPrefixChar = 'l';
         length = validMemoryMapBytes;
     }
-
+    
     Buffer_WriteChar(pBuffer, dataPrefixChar);
     Buffer_WriteSizedString(pBuffer, pArguments->pAnnex + offset, length);
 }
@@ -273,7 +270,7 @@ static uint32_t handleQueryTransferFeaturesCommand(void)
 {
     Buffer*             pBuffer = GetBuffer();
     AnnexOffsetLength   arguments;
-
+    
     __try
     {
         __throwing_func( readQueryTransferReadArguments(pBuffer, &arguments) );
@@ -288,7 +285,7 @@ static uint32_t handleQueryTransferFeaturesCommand(void)
     arguments.pAnnex = Platform_GetTargetXml();
     arguments.annexSize = Platform_GetTargetXmlSize();
     handleQueryTransferReadCommand(&arguments);
-
+    
     return 0;
 }
 
@@ -299,7 +296,6 @@ static void validateAnnexIs(const char* pAnnex, const char* pExpected)
 }
 
 /* Handle the "qfThreadInfo" command used by gdb to start retrieving list of RTOS thread IDs.
-
     Reponse Format: mAAAAAAAA[,BBBBBBBB]...
                         -or-
                     l
@@ -322,7 +318,6 @@ static uint32_t handleQueryFirstThreadInfoCommand(void)
 }
 
 /* Handle the "qsThreadInfo" command used by gdb subsequent calls to retrieve list of RTOS thread IDs.
-
     Reponse Format: mAAAAAAAA[,BBBBBBBB]...
                         -or-
                     l
@@ -357,11 +352,9 @@ static uint32_t outputThreadIds(uint32_t threadId)
 }
 
 /* Handle the "qThreadExtraInfo" command used by gdb to request extra information about a particular thread as a string.
-
     Command Format: qThreadExtraInfo,AAAAAAAA
     Where AAAAAAAA is the thread-id of the thread for which extra string information should be fetched.
         memory-map
-
     Reponse Format: XX...
     Where XX is the hexadecimal representation of the ASCII extra thread info string.
 */
@@ -370,7 +363,6 @@ static uint32_t handleQueryThreadExtraInfoCommand(void)
     Buffer*     pBuffer = GetBuffer();
     const char* pThreadExtraInfo = NULL;
     uint32_t    threadId;
-
     if (!Buffer_IsNextCharEqualTo(pBuffer, ','))
     {
         PrepareStringResponse(MRI_ERROR_INVALID_ARGUMENT);
@@ -387,63 +379,41 @@ static uint32_t handleQueryThreadExtraInfoCommand(void)
     return 0;
 }
 
-/* Handle the "qRcmd" command used by gdb to send "monitor" commands to the stub.
-
-    Command Format: qRcmd,XXYY...
-    Where XXYY... are the hexadecimal representation of the ASCII command text.
+/* Handle the "qSymbol" command used by gdb to request the symbol name for a particular address.
+    Command Format: qSymbol:sym_name
+    Reponse Format: qSymbol:sym_val:sym_name
 */
-static uint32_t handleMonitorCommand(void)
+static uint32_t handleQuerySymbolCommand(void)
 {
-    Buffer*             pBuffer =GetBuffer();
-    static const char   reset[] = "reset";
-    static const char   showfault[] = "showfault";
-    static const char   help[] = "help";
+    Buffer* pBuffer = GetBuffer();
+    uint32_t address;
 
-    if (!Buffer_IsNextCharEqualTo(pBuffer, ','))
+    // Check if gdb is just offering symbol lookup
+    if (Buffer_MatchesString(pBuffer, "::", sizeof("::") - 1)) 
     {
-        PrepareStringResponse(MRI_ERROR_INVALID_ARGUMENT);
-        return 0;
     }
-
-    if (Buffer_MatchesHexString(pBuffer, reset, sizeof(reset)-1))
+    else if (Buffer_IsNextCharEqualTo(pBuffer, ':'))
     {
-        return handleMonitorResetCommand();
-    }
-    else if (Buffer_MatchesHexString(pBuffer, showfault, sizeof(showfault)-1))
-    {
-        return handleMonitorShowFaultCommand();
-    }
-    else if (Buffer_MatchesHexString(pBuffer, help, sizeof(help)-1))
-    {
-        return handleMonitorHelpCommand();
+        // get address of symbol
+        address = Buffer_ReadUIntegerAsHex(pBuffer);
+        if (Buffer_IsNextCharEqualTo(pBuffer, ':'))
+        {
+            // get name of symbol in hex
+            Platform_SetSymbolAddress(pBuffer, address);
+        }
     }
     else
     {
-        WriteStringToGdbConsole("Unrecognized monitor command!\r\n");
-        return handleMonitorHelpCommand();
+        // nothing to do
+        return 0;
     }
-}
 
-static uint32_t handleMonitorResetCommand(void)
-{
-    RequestResetOnNextContinue();
-    WriteStringToGdbConsole("Will reset on next continue.\r\n");
-    PrepareStringResponse("OK");
-    return 0;
-}
-
-static uint32_t handleMonitorShowFaultCommand(void)
-{
-    Platform_DisplayFaultCauseToGdbConsole();
-    PrepareStringResponse("OK");
-    return 0;
-}
-
-static uint32_t handleMonitorHelpCommand(void)
-{
-    WriteStringToGdbConsole("Supported monitor commands:\r\n");
-    WriteStringToGdbConsole("reset\r\n");
-    WriteStringToGdbConsole("showfault\r\n");
-    PrepareStringResponse("OK");
+    // Do next symbol request in hex
+    pBuffer  = GetInitializedBuffer();
+    Buffer_WriteString(pBuffer, "qSymbol:");
+    if (!Platform_SetSymbolRequest(pBuffer)) {
+        // Finish symbol fetch
+        PrepareStringResponse("OK");
+    }
     return 0;
 }

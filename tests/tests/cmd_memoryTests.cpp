@@ -1,4 +1,4 @@
-/* Copyright 2017 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2017 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -15,9 +15,10 @@
 
 extern "C"
 {
-#include <core/try_catch.h>
-#include <core/mri.h>
-#include <core/core.h>
+#include <try_catch.h>
+#include <mri.h>
+
+void __mriDebugException(void);
 }
 #include <platformMock.h>
 #include <stdio.h>
@@ -28,13 +29,13 @@ extern "C"
 
 TEST_GROUP(cmdMemory)
 {
-    int     m_expectedException;
-
+    int     m_expectedException;            
+    
     void setup()
     {
         m_expectedException = noException;
         platformMock_Init();
-        mriInit("MRI_UART_MBED_USB");
+        __mriInit("MRI_UART_MBED_USB");
     }
 
     void teardown()
@@ -43,7 +44,7 @@ TEST_GROUP(cmdMemory)
         clearExceptionCode();
         platformMock_Uninit();
     }
-
+    
     void validateExceptionCode(int expectedExceptionCode)
     {
         m_expectedException = expectedExceptionCode;
@@ -57,8 +58,8 @@ TEST(cmdMemory, MemoryRead32Aligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$m%08x,4#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$78563412#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$78563412#a4+") );
 }
 
 TEST(cmdMemory, MemoryRead16Aligned)
@@ -67,8 +68,8 @@ TEST(cmdMemory, MemoryRead16Aligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$m%08x,2#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$3412#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$3412#ca+") );
 }
 
 TEST(cmdMemory, MemoryRead8)
@@ -77,8 +78,8 @@ TEST(cmdMemory, MemoryRead8)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$m%08x,1#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$12#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$12#63+") );
 }
 
 TEST(cmdMemory, MemoryRead_InvalidParameterSeparator_ErrorResponse)
@@ -87,9 +88,8 @@ TEST(cmdMemory, MemoryRead_InvalidParameterSeparator_ErrorResponse)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$m%08x:1#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_INVALID_ARGUMENT "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_INVALID_ARGUMENT "#a6+") );
 }
 
 TEST(cmdMemory, MemoryRead_PacketBufferTooSmall_ShouldReturnOverflowResponse)
@@ -99,9 +99,8 @@ TEST(cmdMemory, MemoryRead_PacketBufferTooSmall_ShouldReturnOverflowResponse)
     snprintf(packet, sizeof(packet), "+$m%08x,8#", (uint32_t)(size_t)value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_SetPacketBufferSize(15);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_BUFFER_OVERRUN "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_BUFFER_OVERRUN "#a9+") );
 }
 
 TEST(cmdMemory, MemoryRead32Unaligned)
@@ -110,8 +109,8 @@ TEST(cmdMemory, MemoryRead32Unaligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$m%08x,4#", ((uint32_t)(size_t)value) + 2);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$3412f0de#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$3412f0de#29+") );
 }
 
 TEST(cmdMemory, MemoryRead16Unaligned)
@@ -120,8 +119,8 @@ TEST(cmdMemory, MemoryRead16Unaligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$m%08x,2#", ((uint32_t)(size_t)value) + 1);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$1278#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$1278#d2+") );
 }
 
 TEST(cmdMemory, MemoryRead32_FaultAndReturnNoBytes)
@@ -131,8 +130,8 @@ TEST(cmdMemory, MemoryRead32_FaultAndReturnNoBytes)
     snprintf(packet, sizeof(packet), "+$m%08x,4#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$E03#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$E03#a8+") );
 }
 
 TEST(cmdMemory, MemoryRead16_FaultAndReturnNoBytes)
@@ -142,8 +141,8 @@ TEST(cmdMemory, MemoryRead16_FaultAndReturnNoBytes)
     snprintf(packet, sizeof(packet), "+$m%08x,2#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$E03#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$E03#a8+") );
 }
 
 TEST(cmdMemory, MemoryRead8_FaultAndReturnNoBytes)
@@ -153,8 +152,8 @@ TEST(cmdMemory, MemoryRead8_FaultAndReturnNoBytes)
     snprintf(packet, sizeof(packet), "+$m%08x,1#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$E03#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$E03#a8+") );
 }
 
 TEST(cmdMemory, MemoryRead8_FaultOnLastOfThreeBytes)
@@ -164,8 +163,8 @@ TEST(cmdMemory, MemoryRead8_FaultOnLastOfThreeBytes)
     snprintf(packet, sizeof(packet), "+$m%08x,3#", (uint32_t)(size_t)values);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(3);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$1234#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$1234#ca+") );
 }
 
 
@@ -176,8 +175,8 @@ TEST(cmdMemory, MemoryWrite32Aligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,4:12345678#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x78563412, value );
 }
 
@@ -187,8 +186,8 @@ TEST(cmdMemory, MemoryWrite16Aligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,2:1234#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x3412, value );
 }
 
@@ -199,9 +198,8 @@ TEST(cmdMemory, MemoryWrite32_FaultOnFinalWrite)
     snprintf(packet, sizeof(packet), "+$M%08x,4:12345678#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#a8+") );
 }
 
 TEST(cmdMemory, MemoryWrite16_FaultOnFinalWrite)
@@ -211,20 +209,19 @@ TEST(cmdMemory, MemoryWrite16_FaultOnFinalWrite)
     snprintf(packet, sizeof(packet), "+$M%08x,2:1234#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#a8+") );
  }
-
-
+ 
+ 
 TEST(cmdMemory, MemoryWrite8)
 {
     uint8_t  value = 0xFF;
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,1:12#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x12, value );
 }
 
@@ -234,9 +231,8 @@ TEST(cmdMemory, MemoryWrite8_InvalidParameterSeparator_ShouldReturnError)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,1,12#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_INVALID_ARGUMENT "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_INVALID_ARGUMENT "#a6+") );
     CHECK_EQUAL ( 0xFF, value );
 }
 
@@ -246,8 +242,8 @@ TEST(cmdMemory, MemoryWrite32Unaligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,4:12345678#", ((uint32_t)(size_t)value) + 2);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x3412FFFF, value[0] );
     CHECK_EQUAL ( 0xFFFF7856, value[1] );
 }
@@ -258,8 +254,8 @@ TEST(cmdMemory, MemoryWrite16Unaligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,2:1234#", ((uint32_t)(size_t)value) + 1);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x12FF, value[0] );
     CHECK_EQUAL ( 0xFF34, value[1] );
 }
@@ -270,9 +266,8 @@ TEST(cmdMemory, MemoryWrite32_TooFewBytesInPacket_ShouldReturnErrorAndNotModifyM
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,4:123456#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_BUFFER_OVERRUN "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_BUFFER_OVERRUN "#a9+") );
     CHECK_EQUAL ( 0xFFFFFFFF, value );
 }
 
@@ -282,9 +277,8 @@ TEST(cmdMemory, MemoryWrite16_TooFewBytesInPacket_ShouldReturnErrorAndNotModifyM
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,2:12#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_BUFFER_OVERRUN "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_BUFFER_OVERRUN "#a9+") );
     CHECK_EQUAL ( 0xFFFF, value );
 }
 
@@ -294,9 +288,8 @@ TEST(cmdMemory, MemoryWrite8_TooFewBytesInPacket_ShouldReturnErrorAndNotModifyMe
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$M%08x,1:#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_BUFFER_OVERRUN "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_BUFFER_OVERRUN "#a9+") );
     CHECK_EQUAL ( 0xFF, value );
 }
 
@@ -307,9 +300,8 @@ TEST(cmdMemory, MemoryWrite8_FaultOnFirstWrite)
     snprintf(packet, sizeof(packet), "+$M%08x,1:12#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#a8+") );
 }
 
 TEST(cmdMemory, MemoryWrite8_FaultOnSecondWrite)
@@ -319,9 +311,8 @@ TEST(cmdMemory, MemoryWrite8_FaultOnSecondWrite)
     snprintf(packet, sizeof(packet), "+$M%08x,3:010203#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(2);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#a8+") );
     CHECK_EQUAL( 1, value[0]);
     // This next write made it through since the mocked fault is only checked after actual native write.
     CHECK_EQUAL( 2, value[1]);
@@ -337,8 +328,8 @@ TEST(cmdMemory, BinaryMemoryWrite32Aligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,4:\x12\x34\x56\x78#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x78563412, value );
 }
 
@@ -348,8 +339,8 @@ TEST(cmdMemory, BinaryMemoryWrite16Aligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,2:\x12\x34#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x3412, value );
 }
 
@@ -360,9 +351,8 @@ TEST(cmdMemory, BinaryMemoryWrite32_FaultOnFinalWraite)
     snprintf(packet, sizeof(packet), "+$X%08x,4:\x12\x34\x56\x78#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#a8+") );
 }
 
 TEST(cmdMemory, BinaryMemoryWrite16_FaultOnFinalWrite)
@@ -372,9 +362,8 @@ TEST(cmdMemory, BinaryMemoryWrite16_FaultOnFinalWrite)
     snprintf(packet, sizeof(packet), "+$X%08x,2:\x12\x34#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#a8+") );
 }
 
 TEST(cmdMemory, BinaryMemoryWrite8)
@@ -383,8 +372,8 @@ TEST(cmdMemory, BinaryMemoryWrite8)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,1:\x12#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x12, value );
 }
 
@@ -394,9 +383,8 @@ TEST(cmdMemory, BinaryMemoryWrite8_InvalidParameterSeparator_ShouldReturnError)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,1,\x12#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_INVALID_ARGUMENT "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_INVALID_ARGUMENT "#a6+") );
     CHECK_EQUAL ( 0xFF, value );
 }
 
@@ -406,8 +394,8 @@ TEST(cmdMemory, BinaryMemoryWrite32Unaligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,4:\x12\x34\x56\x78#", ((uint32_t)(size_t)value) + 2);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x3412FFFF, value[0] );
     CHECK_EQUAL ( 0xFFFF7856, value[1] );
 }
@@ -418,8 +406,8 @@ TEST(cmdMemory, BinaryMemoryWrite16Unaligned)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,2:\x12\x34#", ((uint32_t)(size_t)value) + 1);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( 0x12FF, value[0] );
     CHECK_EQUAL ( 0xFF34, value[1] );
 }
@@ -430,9 +418,8 @@ TEST(cmdMemory, BinaryMemoryWrite32_TooFewBytesInPacket_ShouldReturnErrorAndNotM
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,4:\x12\x34\x56#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_BUFFER_OVERRUN "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_BUFFER_OVERRUN "#a9+") );
     CHECK_EQUAL ( 0xFFFFFFFF, value );
 }
 
@@ -442,9 +429,8 @@ TEST(cmdMemory, BinaryMemoryWrite16_TooFewBytesInPacket_ShouldReturnErrorAndNotM
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,2:\x12#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_BUFFER_OVERRUN "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_BUFFER_OVERRUN "#a9+") );
     CHECK_EQUAL ( 0xFFFF, value );
 }
 
@@ -454,9 +440,8 @@ TEST(cmdMemory, BinaryMemoryWrite8_TooFewBytesInPacket_ShouldReturnErrorAndNotMo
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,1:#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_BUFFER_OVERRUN "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_BUFFER_OVERRUN "#a9+") );
     CHECK_EQUAL ( 0xFF, value );
 }
 
@@ -467,9 +452,8 @@ TEST(cmdMemory, BinaryMemoryWrite8_FaultOnFirstWrite)
     snprintf(packet, sizeof(packet), "+$X%08x,1:\x12#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(1);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#a8+") );
 }
 
 TEST(cmdMemory, BinaryMemoryWrite8_FaultOnSecondWrite)
@@ -479,9 +463,8 @@ TEST(cmdMemory, BinaryMemoryWrite8_FaultOnSecondWrite)
     snprintf(packet, sizeof(packet), "+$X%08x,3:\x01\x02\x03#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
     platformMock_FaultOnSpecificMemoryCall(2);
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_MEMORY_ACCESS_FAILURE "#a8+") );
     CHECK_EQUAL( 1, value[0]);
     // This next write made it through since the mocked fault is only checked after actual native write.
     CHECK_EQUAL( 2, value[1]);
@@ -495,8 +478,8 @@ TEST(cmdMemory, BinaryMemoryWrite8_UseEscapedByte)
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,1:}%c#", (uint32_t)(size_t)&value, '}' ^ 0x20);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$OK#+"), platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$OK#9a+") );
     CHECK_EQUAL ( '}', value );
 }
 
@@ -506,8 +489,7 @@ TEST(cmdMemory, BinaryMemoryWrite8_BufferTooSmallForEscapedByte_ReturnErrorRespo
     char     packet[64];
     snprintf(packet, sizeof(packet), "+$X%08x,1:}#", (uint32_t)(size_t)&value);
     platformMock_CommInitReceiveChecksummedData(packet, "+$c#");
-        mriDebugException(platformMock_GetContext());
-    STRCMP_EQUAL ( platformMock_CommChecksumData("$T05responseT#+$" MRI_ERROR_BUFFER_OVERRUN "#+"),
-                   platformMock_CommGetTransmittedData() );
+        __mriDebugException();
+    CHECK_TRUE ( platformMock_CommDoesTransmittedDataEqual("$T05responseT#7c+$" MRI_ERROR_BUFFER_OVERRUN "#a9+") );
     CHECK_EQUAL ( 0xFF, value );
 }

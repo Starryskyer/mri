@@ -1,4 +1,4 @@
-/* Copyright 2020 Adam Green (https://github.com/adamgreen/)
+/* Copyright 2014 Adam Green (http://mbed.org/users/AdamGreen/)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -16,9 +16,9 @@
     buffer while verifying that no overflow takes place. */
 #include <limits.h>
 #include <string.h>
-#include <core/buffer.h>
-#include <core/hex_convert.h>
-#include <core/try_catch.h>
+#include "buffer.h"
+#include "hex_convert.h"
+#include "try_catch.h"
 
 void Buffer_Init(Buffer* pBuffer, char* pBufferStart, size_t bufferSize)
 {
@@ -140,7 +140,7 @@ uint8_t Buffer_ReadByteAsHex(Buffer* pBuffer)
         __rethrow_and_return(0x00);
     }
     pBuffer->pCurrent += 2;
-
+    
     return byte;
 }
 
@@ -157,18 +157,16 @@ void Buffer_WriteSizedString(Buffer* pBuffer, const char* pString, size_t length
         throwExceptionAndFlagBufferOverrunIfBufferLeftIsSmallerThan(pBuffer, length);
     __catch
         __rethrow;
-
+    
     while (length--)
         *(pBuffer->pCurrent++) = *pString++;
 }
-
 
 void Buffer_WriteStringAsHex(Buffer* pBuffer, const char* pString)
 {
     while (*pString)
         Buffer_WriteByteAsHex(pBuffer, *pString++);
 }
-
 
 static uint32_t parseNextHexDigitAndAddNibbleToValue(Buffer* pBuffer, uint32_t currentValue);
 static void     pushBackLastChar(Buffer* pBuffer);
@@ -193,7 +191,7 @@ uint32_t Buffer_ReadUIntegerAsHex(Buffer* pBuffer)
 
     if (hexDigitsParsed == 0)
         __throw_and_return(invalidValueException, 0U);
-
+    
     return value;
 }
 
@@ -201,7 +199,7 @@ static uint32_t parseNextHexDigitAndAddNibbleToValue(Buffer* pBuffer, uint32_t c
 {
     char     nextChar;
     uint32_t nibbleValue;
-
+    
     __try
         nextChar = Buffer_ReadChar(pBuffer);
     __catch
@@ -239,13 +237,13 @@ void Buffer_WriteUIntegerAsHex(Buffer* pBuffer, uint32_t value)
 {
     int              leadingZeroBytes;
     int              currentByteIndex;
-
+    
     if (value == 0)
     {
         Buffer_WriteByteAsHex(pBuffer, 0);
         return;
     }
-
+    
     leadingZeroBytes = countLeadingZeroBytes(value);
     currentByteIndex = ((int)sizeof(value) - leadingZeroBytes) - 1;
     while (currentByteIndex >= 0)
@@ -261,13 +259,13 @@ static int countLeadingZeroBytes(uint32_t value)
 {
     uint32_t mask = 0xFF000000;
     int      count = 0;
-
+    
     while (mask && 0 == (value & mask))
     {
         count++;
         mask >>= 8;
     }
-
+    
     return count;
 }
 
@@ -275,7 +273,7 @@ static uint8_t extractByteAtIndex(uint32_t value, int index)
 {
     static const int bitsPerByte = 8;
     uint32_t         shiftAmount = index * bitsPerByte;
-
+    
     return (uint8_t)((value >> shiftAmount) & 0xff);
 }
 
@@ -285,7 +283,7 @@ int32_t Buffer_ReadIntegerAsHex(Buffer* pBuffer)
 {
     uint32_t value = 0;
     int      isNegative = 0;
-
+    
     __try
     {
         __throwing_func( isNegative = Buffer_IsNextCharEqualTo(pBuffer, '-') );
@@ -303,12 +301,12 @@ static int32_t convertToIntegerAndThrowIfOutOfRange(int isNegative, uint32_t val
 {
     if (!isNegative && value > INT_MAX)
         __throw_and_return(invalidValueException, INT_MAX);
-
+        
     if (isNegative && value > ((uint32_t)INT_MAX + 1))
     {
         __throw_and_return(invalidValueException, INT_MIN);
     }
-
+    
     return isNegative ? -(int)value : (int)value;
 }
 
@@ -334,7 +332,7 @@ static int32_t calculateAbsoluteValueAndWriteMinusSignForNegativeValue(Buffer* p
         value = -value;
         Buffer_WriteChar(pBuffer, '-');
     }
-
+    
     return value;
 }
 
@@ -348,7 +346,7 @@ int Buffer_IsNextCharEqualTo(Buffer* pBuffer, char thisChar)
         throwExceptionIfBufferLeftIsSmallerThan(pBuffer, 1);
     __catch
         __rethrow_and_return(0);
-
+        
     if (peekAtNextChar(pBuffer) == thisChar)
     {
         advanceToNextChar(pBuffer);
@@ -375,32 +373,17 @@ static void advanceToNextChar(Buffer* pBuffer)
 }
 
 
-typedef struct CompareParams
-{
-    int     (*compareFuncPtr)(Buffer* pBuffer, const char* pDesiredString, size_t stringLength);
-    size_t  charLength;
-} CompareParams;
-
-static int matchesString(CompareParams* pParams, Buffer* pBuffer, const char* pString, size_t stringLength);
 static int doesBufferContainThisString(Buffer* pBuffer, const char* pDesiredString, size_t stringLength);
-static int doesBufferContainThisHexString(Buffer* pBuffer, const char* pDesiredString, size_t stringLength);
-static int hexStringCompare(Buffer* pBuffer, const char* pDesiredString, size_t stringLength);
 int Buffer_MatchesString(Buffer* pBuffer, const char* pString, size_t stringLength)
 {
-    CompareParams params = { doesBufferContainThisString, 1 };
-    return matchesString(&params, pBuffer, pString, stringLength);
-}
-
-static int matchesString(CompareParams* pParams, Buffer* pBuffer, const char* pString, size_t stringLength)
-{
     __try
-        throwExceptionIfBufferLeftIsSmallerThan(pBuffer, stringLength * pParams->charLength);
+        throwExceptionIfBufferLeftIsSmallerThan(pBuffer, stringLength);
     __catch
         __rethrow_and_return(0);
-
-    if(pParams->compareFuncPtr(pBuffer, pString, stringLength))
+    
+    if(doesBufferContainThisString(pBuffer, pString, stringLength))
     {
-        pBuffer->pCurrent += stringLength * pParams->charLength;
+        pBuffer->pCurrent += stringLength;
         return 1;
     }
 
@@ -410,49 +393,10 @@ static int matchesString(CompareParams* pParams, Buffer* pBuffer, const char* pS
 static int doesBufferContainThisString(Buffer* pBuffer, const char* pDesiredString, size_t stringLength)
 {
     const char* pBufferString = pBuffer->pCurrent;
-
+    
     return (strncmp(pBufferString, pDesiredString, stringLength) == 0) &&
-           (Buffer_BytesLeft(pBuffer) == stringLength ||
-            pBufferString[stringLength] == ':' ||
+           (Buffer_BytesLeft(pBuffer) == stringLength || 
+            pBufferString[stringLength] == ':'||
             pBufferString[stringLength] == ';' ||
             pBufferString[stringLength] == ',');
-}
-
-
-int Buffer_MatchesHexString(Buffer* pBuffer, const char* pString, size_t stringLength)
-{
-    CompareParams params = { doesBufferContainThisHexString, 2 };
-    return matchesString(&params, pBuffer, pString, stringLength);
-}
-
-static int doesBufferContainThisHexString(Buffer* pBuffer, const char* pDesiredString, size_t stringLength)
-{
-    return (hexStringCompare(pBuffer, pDesiredString, stringLength) == 0) &&
-           (Buffer_BytesLeft(pBuffer) == stringLength*2 ||
-            (Buffer_BytesLeft(pBuffer) >= (stringLength+1)*2 &&
-             pBuffer->pCurrent[stringLength*2] == '2' &&
-             pBuffer->pCurrent[stringLength*2+1] == '0'));
-}
-
-static int hexStringCompare(Buffer* pBuffer, const char* pDesiredString, size_t stringLength)
-{
-    char* pOrig = pBuffer->pCurrent;
-    int   result = 0;
-    size_t i;
-    for (i = 0 ; i < stringLength ; i++)
-    {
-        uint8_t byte = Buffer_ReadByteAsHex(pBuffer);
-        if (byte < (uint8_t)pDesiredString[i])
-        {
-            result = -1;
-            break;
-        }
-        if (byte > (uint8_t)pDesiredString[i])
-        {
-            result = 1;
-            break;
-        }
-    }
-    pBuffer->pCurrent = pOrig;
-    return result;
 }

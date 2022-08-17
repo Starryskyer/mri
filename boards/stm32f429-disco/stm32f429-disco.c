@@ -1,4 +1,4 @@
-/* Copyright 2015 Adam Green     (https://github.com/adamgreen/)
+/* Copyright 2015 Adam Green     (http://mbed.org/users/AdamGreen/)
    Copyright 2015 Chang,Jia-Rung (https://github.com/JaredCJR)
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,25 +15,25 @@
 */
 /* Routines which expose STM32F429 Discovery specific functionality to the mri debugger. */
 #include <string.h>
-#include <core/platforms.h>
-#include <core/try_catch.h>
-#include <architectures/armv7-m/debug_cm3.h>
-#include <devices/stm32f429xx/stm32f429xx_init.h>
+#include <platforms.h>
+#include <try_catch.h>
+#include "../../architectures/armv7-m/debug_cm3.h"
+#include "../../devices/stm32f429xx/stm32f429xx_init.h"
 
 
 void Platform_Init(Token* pParameterTokens)
 {
-    mriStm32f429xx_Init(pParameterTokens);
+    __mriStm32f429xx_Init(pParameterTokens);
 }
 
 
-const uint8_t* mriPlatform_GetUid(void)
+const uint8_t* __mriPlatform_GetUid(void)
 {
     return NULL;
 }
 
 
-uint32_t mriPlatform_GetUidSize(void)
+uint32_t __mriPlatform_GetUidSize(void)
 {
     return 0;
 }
